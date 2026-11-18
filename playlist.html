@@ -1,0 +1,616 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Мой плейлист</title>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <style>
+        :root {
+            --bg-main: #0f0f13;
+            --bg-card: #18181f;
+            --bg-card-hover: #22222c;
+            --accent: #1db954;
+            --accent-hover: #1ed760;
+            --text-primary: #ffffff;
+            --text-secondary: #9ca3af;
+            --danger: #ef4444;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+            background-color: var(--bg-main);
+            color: var(--text-primary);
+            padding-bottom: 155px;
+            min-height: 100vh;
+        }
+
+        .header {
+            position: sticky;
+            top: 0;
+            z-index: 10;
+            background: rgba(15, 15, 19, 0.88);
+            backdrop-filter: blur(14px);
+            padding: 16px 16px 12px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+        }
+
+        .header-top {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 12px;
+        }
+
+        .header h1 {
+            font-size: 22px;
+            font-weight: 700;
+            letter-spacing: -0.3px;
+        }
+
+        .track-counter {
+            font-size: 13px;
+            color: var(--text-secondary);
+            background: rgba(255, 255, 255, 0.06);
+            padding: 4px 10px;
+            border-radius: 99px;
+        }
+
+        .search-box {
+            width: 100%;
+            background: var(--bg-card);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 12px;
+            padding: 10px 14px;
+            color: var(--text-primary);
+            font-size: 14px;
+            outline: none;
+            transition: border-color 0.2s;
+        }
+
+        .search-box:focus {
+            border-color: var(--accent);
+        }
+
+        .track-list {
+            padding: 12px 16px;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .track-item {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 10px;
+            background: var(--bg-card);
+            border-radius: 14px;
+            cursor: pointer;
+            transition: background 0.2s, transform 0.1s;
+            border: 1px solid transparent;
+        }
+
+        .track-item:active {
+            transform: scale(0.99);
+        }
+
+        .track-item.active {
+            background: rgba(29, 185, 84, 0.12);
+            border-color: rgba(29, 185, 84, 0.4);
+        }
+
+        .cover-wrapper {
+            position: relative;
+            width: 52px;
+            height: 52px;
+            border-radius: 10px;
+            overflow: hidden;
+            flex-shrink: 0;
+            background: linear-gradient(135deg, #2b2b36, #18181f);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .cover-wrapper img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            display: block;
+        }
+
+        .cover-fallback {
+            font-size: 22px;
+            user-select: none;
+        }
+
+        .track-info {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .track-title {
+            font-size: 15px;
+            font-weight: 600;
+            color: var(--text-primary);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            margin-bottom: 3px;
+        }
+
+        .track-item.active .track-title {
+            color: var(--accent);
+        }
+
+        .track-artist {
+            font-size: 13px;
+            color: var(--text-secondary);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .track-actions {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .icon-btn {
+            background: rgba(255, 255, 255, 0.06);
+            border: none;
+            color: var(--text-secondary);
+            width: 34px;
+            height: 34px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: background 0.2s, color 0.2s;
+        }
+
+        .icon-btn:hover {
+            background: rgba(255, 255, 255, 0.12);
+            color: var(--text-primary);
+        }
+
+        .icon-btn.delete:hover {
+            background: rgba(239, 68, 68, 0.15);
+            color: var(--danger);
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 60px 24px;
+            color: var(--text-secondary);
+        }
+
+        .player-bar {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            background: rgba(24, 24, 31, 0.96);
+            backdrop-filter: blur(20px);
+            border-top: 1px solid rgba(255, 255, 255, 0.08);
+            padding: 12px 16px 18px;
+            z-index: 20;
+            box-shadow: 0 -8px 30px rgba(0, 0, 0, 0.45);
+            transform: translateY(100%);
+            transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+
+        .player-bar.visible {
+            transform: translateY(0);
+        }
+
+        .progress-container {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 10px;
+        }
+
+        .time-label {
+            font-size: 11px;
+            color: var(--text-secondary);
+            font-variant-numeric: tabular-nums;
+            min-width: 34px;
+        }
+
+        .seek-slider {
+            flex: 1;
+            -webkit-appearance: none;
+            appearance: none;
+            height: 4px;
+            border-radius: 2px;
+            background: rgba(255, 255, 255, 0.18);
+            outline: none;
+            cursor: pointer;
+        }
+
+        .seek-slider::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background: var(--accent);
+            cursor: pointer;
+        }
+
+        .player-main {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+        }
+
+        .player-track {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            min-width: 0;
+            flex: 1;
+        }
+
+        .player-cover {
+            width: 44px;
+            height: 44px;
+            border-radius: 8px;
+            object-fit: cover;
+            background: #2b2b36;
+            flex-shrink: 0;
+        }
+
+        .player-meta {
+            min-width: 0;
+            flex: 1;
+        }
+
+        .player-title {
+            font-size: 14px;
+            font-weight: 600;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .player-artist {
+            font-size: 12px;
+            color: var(--text-secondary);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .player-controls {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .ctrl-btn {
+            background: none;
+            border: none;
+            color: var(--text-primary);
+            width: 38px;
+            height: 38px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+        }
+
+        .ctrl-btn.play-pause {
+            background: var(--accent);
+            color: #000;
+            width: 44px;
+            height: 44px;
+        }
+
+        .ctrl-btn.active-mode {
+            color: var(--accent);
+        }
+    </style>
+</head>
+<body>
+
+    <div class="header">
+        <div class="header-top">
+            <h1>🎵 Мой плейлист</h1>
+            <span class="track-counter" id="trackCount">0 треков</span>
+        </div>
+        <input type="text" id="searchInput" class="search-box" placeholder="Поиск по названию или автору...">
+    </div>
+
+    <div id="trackList" class="track-list">
+        <div class="empty-state">Загрузка плейлиста...</div>
+    </div>
+
+    <div id="playerBar" class="player-bar">
+        <div class="progress-container">
+            <span id="currentTime" class="time-label">0:00</span>
+            <input type="range" id="seekSlider" class="seek-slider" min="0" max="100" value="0" step="0.1">
+            <span id="totalTime" class="time-label">0:00</span>
+        </div>
+        <div class="player-main">
+            <div class="player-track">
+                <img id="playerCover" class="player-cover" src="" alt="" onerror="this.style.visibility='hidden'">
+                <div class="player-meta">
+                    <div id="playerTitle" class="player-title">Выберите трек</div>
+                    <div id="playerArtist" class="player-artist">—</div>
+                </div>
+            </div>
+            <div class="player-controls">
+                <button class="ctrl-btn" id="prevBtn" title="Предыдущий">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M6 6h2v12H6zm3.5 6l8.5 6V6z"/></svg>
+                </button>
+                <button class="ctrl-btn play-pause" id="playPauseBtn" title="Воспроизвести / Пауза">
+                    <svg id="playIcon" width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+                    <svg id="pauseIcon" width="22" height="22" viewBox="0 0 24 24" fill="currentColor" style="display:none;"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>
+                </button>
+                <button class="ctrl-btn" id="nextBtn" title="Следующий">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/></svg>
+                </button>
+                <button class="ctrl-btn" id="repeatBtn" title="Повтор трека">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M7 7h10v3l4-4-4-4v3H5v6h2V7zm10 10H7v-3l-4 4 4 4v-3h12v-6h-2v4z"/></svg>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <audio id="audioElement" preload="metadata"></audio>
+
+    <script>
+        const tg = window.Telegram.WebApp;
+        tg.expand();
+
+        const urlParams = new URLSearchParams(window.location.search);
+        const userId = tg.initDataUnsafe?.user?.id || urlParams.get('user_id');
+
+        let allTracks = [];
+        let filteredTracks = [];
+        let currentIndex = -1;
+        let isRepeat = false;
+        let isSeeking = false;
+
+        const audio = document.getElementById('audioElement');
+        const trackListEl = document.getElementById('trackList');
+        const trackCountEl = document.getElementById('trackCount');
+        const searchInput = document.getElementById('searchInput');
+        const playerBar = document.getElementById('playerBar');
+        const playerTitle = document.getElementById('playerTitle');
+        const playerArtist = document.getElementById('playerArtist');
+        const playerCover = document.getElementById('playerCover');
+        const playPauseBtn = document.getElementById('playPauseBtn');
+        const playIcon = document.getElementById('playIcon');
+        const pauseIcon = document.getElementById('pauseIcon');
+        const prevBtn = document.getElementById('prevBtn');
+        const nextBtn = document.getElementById('nextBtn');
+        const repeatBtn = document.getElementById('repeatBtn');
+        const seekSlider = document.getElementById('seekSlider');
+        const currentTimeEl = document.getElementById('currentTime');
+        const totalTimeEl = document.getElementById('totalTime');
+
+        function formatTime(sec) {
+            if (!sec || isNaN(sec)) return "0:00";
+            const m = Math.floor(sec / 60);
+            const s = Math.floor(sec % 60);
+            return `${m}:${s < 10 ? '0' : ''}${s}`;
+        }
+
+        async function loadPlaylist() {
+            if (!userId) {
+                trackListEl.innerHTML = `<div class="empty-state">Откройте плейлист через кнопку в Telegram-боте.</div>`;
+                return;
+            }
+            try {
+                const res = await fetch(`/api/playlist?user_id=${userId}`);
+                const data = await res.json();
+                allTracks = data.tracks || [];
+                filteredTracks = [...allTracks];
+                renderTracks();
+            } catch (err) {
+                trackListEl.innerHTML = `<div class="empty-state">Ошибка загрузки плейлиста</div>`;
+            }
+        }
+
+        function renderTracks() {
+            trackCountEl.textContent = `${allTracks.length} треков`;
+
+            if (filteredTracks.length === 0) {
+                trackListEl.innerHTML = `<div class="empty-state">Плейлист пуст 🎧</div>`;
+                return;
+            }
+
+            trackListEl.innerHTML = '';
+            filteredTracks.forEach((track, idx) => {
+                const isCurrent = currentIndex !== -1 && filteredTracks[currentIndex]?.file_id === track.file_id;
+                const item = document.createElement('div');
+                item.className = `track-item ${isCurrent ? 'active' : ''}`;
+
+                const coverUrl = `/api/cover?file_id=${encodeURIComponent(track.file_id)}`;
+
+                item.innerHTML = `
+                    <div class="cover-wrapper">
+                        <img src="${coverUrl}" alt="" loading="lazy"
+                             onerror="this.style.display='none'; this.nextElementSibling.style.display='block';">
+                        <span class="cover-fallback" style="display:none;">🎵</span>
+                    </div>
+                    <div class="track-info">
+                        <div class="track-title">${escapeHtml(track.title || track.name)}</div>
+                        <div class="track-artist">${escapeHtml(track.performer || 'Spotify')}</div>
+                    </div>
+                    <div class="track-actions">
+                        <button class="icon-btn" title="Отправить в чат" data-action="send">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>
+                        </button>
+                        <button class="icon-btn delete" title="Удалить" data-action="delete">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg>
+                        </button>
+                    </div>
+                `;
+
+                item.addEventListener('click', (e) => {
+                    const btn = e.target.closest('button');
+                    if (btn) {
+                        e.stopPropagation();
+                        const action = btn.dataset.action;
+                        if (action === 'send') sendToChat(track.file_id);
+                        if (action === 'delete') deleteTrack(track.file_id);
+                        return;
+                    }
+                    playTrack(idx);
+                });
+
+                trackListEl.appendChild(item);
+            });
+        }
+
+        function playTrack(index) {
+            if (index < 0 || index >= filteredTracks.length) return;
+            currentIndex = index;
+            const track = filteredTracks[currentIndex];
+
+            playerBar.classList.add('visible');
+            playerTitle.textContent = track.title || track.name;
+            playerArtist.textContent = track.performer || 'Spotify';
+
+            playerCover.style.visibility = 'visible';
+            playerCover.src = `/api/cover?file_id=${encodeURIComponent(track.file_id)}`;
+
+            audio.src = `/api/stream?file_id=${encodeURIComponent(track.file_id)}`;
+            audio.play().catch(() => {});
+            updatePlayButtons(true);
+            renderTracks();
+
+            if ('mediaSession' in navigator) {
+                navigator.mediaSession.metadata = new MediaMetadata({
+                    title: track.title || track.name,
+                    artist: track.performer || 'Spotify',
+                    artwork: [{ src: `/api/cover?file_id=${encodeURIComponent(track.file_id)}`, sizes: '512x512', type: 'image/jpeg' }]
+                });
+            }
+        }
+
+        function updatePlayButtons(playing) {
+            playIcon.style.display = playing ? 'none' : 'block';
+            pauseIcon.style.display = playing ? 'block' : 'none';
+        }
+
+        playPauseBtn.addEventListener('click', () => {
+            if (currentIndex === -1 && filteredTracks.length > 0) {
+                playTrack(0);
+                return;
+            }
+            if (audio.paused) {
+                audio.play();
+            } else {
+                audio.pause();
+            }
+        });
+
+        prevBtn.addEventListener('click', () => {
+            if (filteredTracks.length === 0) return;
+            if (audio.currentTime > 3) {
+                audio.currentTime = 0;
+                return;
+            }
+            const nextIdx = (currentIndex - 1 + filteredTracks.length) % filteredTracks.length;
+            playTrack(nextIdx);
+        });
+
+        nextBtn.addEventListener('click', () => {
+            if (filteredTracks.length === 0) return;
+            const nextIdx = (currentIndex + 1) % filteredTracks.length;
+            playTrack(nextIdx);
+        });
+
+        repeatBtn.addEventListener('click', () => {
+            isRepeat = !isRepeat;
+            repeatBtn.classList.toggle('active-mode', isRepeat);
+        });
+
+        audio.addEventListener('play', () => updatePlayButtons(true));
+        audio.addEventListener('pause', () => updatePlayButtons(false));
+
+        audio.addEventListener('timeupdate', () => {
+            if (isSeeking) return;
+            currentTimeEl.textContent = formatTime(audio.currentTime);
+            if (audio.duration) {
+                seekSlider.max = audio.duration;
+                seekSlider.value = audio.currentTime;
+                totalTimeEl.textContent = formatTime(audio.duration);
+            }
+        });
+
+        audio.addEventListener('ended', () => {
+            if (isRepeat) {
+                audio.currentTime = 0;
+                audio.play();
+            } else if (filteredTracks.length > 0) {
+                const nextIdx = (currentIndex + 1) % filteredTracks.length;
+                playTrack(nextIdx);
+            }
+        });
+
+        seekSlider.addEventListener('input', () => {
+            isSeeking = true;
+            currentTimeEl.textContent = formatTime(seekSlider.value);
+        });
+
+        seekSlider.addEventListener('change', () => {
+            audio.currentTime = seekSlider.value;
+            isSeeking = false;
+        });
+
+        searchInput.addEventListener('input', () => {
+            const q = searchInput.value.trim().toLowerCase();
+            filteredTracks = allTracks.filter(t =>
+                (t.title && t.title.toLowerCase().includes(q)) ||
+                (t.performer && t.performer.toLowerCase().includes(q)) ||
+                (t.name && t.name.toLowerCase().includes(q))
+            );
+            renderTracks();
+        });
+
+        async function sendToChat(fileId) {
+            try {
+                await fetch(`/api/send_track?user_id=${userId}&file_id=${encodeURIComponent(fileId)}`);
+                if (tg.showPopup) {
+                    tg.showPopup({ message: 'Трек отправлен в чат с ботом! 🎧' });
+                }
+            } catch (e) {}
+        }
+
+        async function deleteTrack(fileId) {
+            try {
+                await fetch(`/api/playlist?user_id=${userId}&file_id=${encodeURIComponent(fileId)}`, { method: 'DELETE' });
+                allTracks = allTracks.filter(t => t.file_id !== fileId);
+                filteredTracks = filteredTracks.filter(t => t.file_id !== fileId);
+                renderTracks();
+            } catch (e) {}
+        }
+
+        function escapeHtml(str) {
+            return String(str).replace(/[&<>"']/g, s => ({
+                '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+            }[s]));
+        }
+
+        loadPlaylist();
+    </script>
+</body>
+</html>

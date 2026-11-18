@@ -1,0 +1,9 @@
+venv/
+__pycache__/
+*.pyc
+.git/
+.env
+tracks_cache.db*
+covers_cache/
+bot_log.jsonl
+cookies.txt

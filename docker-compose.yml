@@ -1,0 +1,16 @@
+services:
+  spotyboty:
+    build: .
+    container_name: spotyboty
+    restart: unless-stopped
+    env_file:
+      - .env
+    ports:
+      - "127.0.0.1:8080:8080"
+    volumes:
+      - ./tracks_cache.db:/app/tracks_cache.db
+      - ./covers_cache:/app/covers_cache
+      - ./bot_log.jsonl:/app/bot_log.jsonl
+      - ./blacklist.txt:/app/blacklist.txt
+      - ./top_songs.txt:/app/top_songs.txt
+      - ./cookies.txt:/app/cookies.txt
