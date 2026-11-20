@@ -6,10 +6,9 @@ services:
     network_mode: host
     env_file:
       - .env
+    environment:
+      - DATA_DIR=/app/data
     volumes:
-      - ./tracks_cache.db:/app/tracks_cache.db
-      - ./covers_cache:/app/covers_cache
-      - ./bot_log.jsonl:/app/bot_log.jsonl
-      - ./blacklist.txt:/app/blacklist.txt
-      - ./top_songs.txt:/app/top_songs.txt
-      - ./cookies.txt:/app/cookies.txt
+      - ./data:/app/data
+      - ./blacklist.txt:/app/blacklist.txt:ro
+      - ./top_songs.txt:/app/top_songs.txt:ro

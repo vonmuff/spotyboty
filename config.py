@@ -2,8 +2,9 @@ import os
 import hashlib
 from dotenv import load_dotenv
 
-SERVER_DIR = "/home/muffin/spotyboty"
-BASE_DIR = SERVER_DIR if os.path.exists(SERVER_DIR) else os.path.dirname(os.path.abspath(__file__))
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DATA_DIR = os.getenv("DATA_DIR", BASE_DIR)
+os.makedirs(DATA_DIR, exist_ok=True)
 
 load_dotenv(os.path.join(BASE_DIR, ".env"))
 
@@ -13,16 +14,24 @@ ADMIN_ID = int(os.getenv("ADMIN_ID", 0))
 SPOTIPY_CLIENT_ID = os.getenv("SPOTIPY_CLIENT_ID")
 SPOTIPY_CLIENT_SECRET = os.getenv("SPOTIPY_CLIENT_SECRET")
 
-COOLDOWN_SECONDS = 5  
-PAGE_SIZE = 5 
+COOLDOWN_SECONDS = 5
+PAGE_SIZE = 5
 
-DB_PATH = os.path.join(BASE_DIR, "tracks_cache.db")
+DOWNLOAD_TIMEOUT = int(os.getenv("DOWNLOAD_TIMEOUT", 180))
+COLLECTION_DOWNLOAD_TIMEOUT = int(os.getenv("COLLECTION_DOWNLOAD_TIMEOUT", 600))
+MAX_COLLECTION_TRACKS = int(os.getenv("MAX_COLLECTION_TRACKS", 50))
+
+DB_PATH = os.path.join(DATA_DIR, "tracks_cache.db")
+COVERS_DIR = os.path.join(DATA_DIR, "covers_cache")
+LOG_FILE = os.path.join(DATA_DIR, "bot_log.jsonl")
+COOKIES_FILE = os.path.join(DATA_DIR, "cookies.txt")
 
 WEBAPP_URL = os.getenv("WEBAPP_URL", "https://spotyboty.mardariev.me").rstrip("/")
 
 WEBHOOK_PATH = "/webhook"
 WEBHOOK_URL = f"{WEBAPP_URL}{WEBHOOK_PATH}"
 WEBHOOK_SECRET = hashlib.sha256((BOT_TOKEN or "secret").encode()).hexdigest()[:32]
+MEDIA_SIGN_KEY = hashlib.sha256(f"media:{BOT_TOKEN or 'secret'}".encode()).hexdigest()
 
 USE_WEBHOOK = os.getenv(
     "USE_WEBHOOK",

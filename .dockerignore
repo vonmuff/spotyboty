@@ -7,3 +7,4 @@ tracks_cache.db*
 covers_cache/
 bot_log.jsonl
 cookies.txt
+data/

@@ -26,6 +26,14 @@ jobs:
           set -e
           cd /home/muffin/spotyboty
           git pull origin main
+          mkdir -p data
+          if [ -f "tracks_cache.db" ] && [ ! -e "data/tracks_cache.db" ]; then
+            docker compose down || true
+            for f in tracks_cache.db tracks_cache.db-wal tracks_cache.db-shm bot_log.jsonl cookies.txt; do
+              [ -f "$f" ] && [ ! -e "data/$f" ] && mv "$f" "data/$f"
+            done
+            [ -d "covers_cache" ] && [ ! -e "data/covers_cache" ] && mv covers_cache data/covers_cache
+          fi
           docker compose up -d --build
           docker image prune -f
         EOF
