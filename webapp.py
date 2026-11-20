@@ -174,7 +174,14 @@ async def healthcheck(request):
 
 @routes.get('/')
 async def index(request):
-    return web.FileResponse(os.path.join(BASE_DIR, 'playlist.html'))
+    return web.FileResponse(
+        os.path.join(BASE_DIR, 'playlist.html'),
+        headers={
+            "Cache-Control": "no-cache, no-store, must-revalidate",
+            "Pragma": "no-cache",
+            "Expires": "0",
+        },
+    )
 
 
 @routes.get('/api/playlist')
