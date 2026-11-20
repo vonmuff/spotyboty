@@ -1,23 +1,63 @@
 import asyncio
-import tempfile
-import os
 import hashlib
+import hmac
+import os
+import tempfile
+import time
+from typing import Optional
+from urllib.parse import urlencode
+
 import aiosqlite
 from aiohttp import web, ClientSession
 from aiogram import Bot
+from aiogram.utils.web_app import safe_parse_webapp_init_data
 from mutagen.mp3 import MP3
 from mutagen.id3 import ID3, APIC
-from config import DB_PATH, BASE_DIR
+from config import DB_PATH, BASE_DIR, COVERS_DIR, MEDIA_SIGN_KEY
 
 routes = web.RouteTableDef()
 bot_instance: Bot = None
 http_session: ClientSession = None
 
-COVERS_DIR = os.path.join(BASE_DIR, "covers_cache")
 os.makedirs(COVERS_DIR, exist_ok=True)
 
 METADATA_SEMAPHORE = asyncio.Semaphore(2)
 _resolving_tasks: set[str] = set()
+MEDIA_TOKEN_TTL = 12 * 3600
+
+
+def _get_authenticated_user_id(request: web.Request) -> Optional[int]:
+    """Проверяет криптографическую подпись Telegram WebApp initData и возвращает user_id."""
+    init_data = request.headers.get("X-Telegram-Init-Data", "").strip()
+    if not init_data or not bot_instance:
+        return None
+    try:
+        parsed = safe_parse_webapp_init_data(token=bot_instance.token, init_data=init_data)
+        return parsed.user.id if parsed.user else None
+    except ValueError:
+        return None
+
+
+def sign_media_token(file_id: str, exp: Optional[int] = None) -> tuple[int, str]:
+    """Генерирует временную HMAC-подпись для безопасного доступа к /api/stream и /api/cover."""
+    if exp is None:
+        exp = int(time.time()) + MEDIA_TOKEN_TTL
+    payload = f"{file_id}:{exp}".encode("utf-8")
+    sig = hmac.new(MEDIA_SIGN_KEY.encode("utf-8"), payload, hashlib.sha256).hexdigest()[:32]
+    return exp, sig
+
+
+def verify_media_token(file_id: str, exp_str: Optional[str], sig: Optional[str]) -> bool:
+    if not file_id or not exp_str or not sig:
+        return False
+    try:
+        exp = int(exp_str)
+    except ValueError:
+        return False
+    if exp < int(time.time()):
+        return False
+    _, expected_sig = sign_media_token(file_id, exp)
+    return hmac.compare_digest(sig, expected_sig)
 
 
 def get_cover_cache_path(file_id: str) -> str:
@@ -100,9 +140,9 @@ async def index(request):
 
 @routes.get('/api/playlist')
 async def get_playlist(request):
-    user_id = request.query.get('user_id')
-    if not user_id:
-        return web.json_response({'error': 'No user_id'}, status=400)
+    user_id = _get_authenticated_user_id(request)
+    if user_id is None:
+        return web.json_response({'error': 'Unauthorized'}, status=401)
         
     async with aiosqlite.connect(DB_PATH) as conn:
         async with conn.execute("""
@@ -139,11 +179,16 @@ async def get_playlist(request):
         if not performer:
             performer = "Spotify"
 
+        exp, sig = sign_media_token(file_id)
+        signed_query = urlencode({"file_id": file_id, "exp": exp, "sig": sig})
+
         tracks.append({
             "file_id": file_id,
             "title": title,
             "performer": performer,
-            "name": f"{performer} — {title}"
+            "name": f"{performer} — {title}",
+            "stream_url": f"/api/stream?{signed_query}",
+            "cover_url": f"/api/cover?{signed_query}",
         })
         
     return web.json_response({'tracks': tracks})
@@ -151,25 +196,18 @@ async def get_playlist(request):
 
 @routes.delete('/api/playlist')
 async def delete_track(request):
-    user_id = request.query.get('user_id')
+    user_id = _get_authenticated_user_id(request)
+    if user_id is None:
+        return web.json_response({'error': 'Unauthorized'}, status=401)
+
     file_id = request.query.get('file_id')
+    if not file_id:
+        return web.json_response({'error': 'No file_id'}, status=400)
+
     async with aiosqlite.connect(DB_PATH) as conn:
         await conn.execute("DELETE FROM playlist WHERE user_id = ? AND file_id = ?", (user_id, file_id))
         await conn.commit()
     return web.json_response({'status': 'deleted'})
-
-
-@routes.get('/api/get_audio_url')
-async def get_audio_url(request):
-    file_id = request.query.get('file_id')
-    if not file_id:
-        return web.json_response({'error': 'No file_id'}, status=400)
-    try:
-        file_info = await bot_instance.get_file(file_id)
-        direct_url = f"https://api.telegram.org/file/bot{bot_instance.token}/{file_info.file_path}"
-        return web.json_response({'url': direct_url})
-    except Exception as e:
-        return web.json_response({'error': str(e)}, status=500)
 
 
 @routes.get('/api/stream')
@@ -177,8 +215,8 @@ async def stream_audio(request):
     """Проксирует аудиопоток с поддержкой Range-запросов для плавной перемотки в плеере"""
     global http_session
     file_id = request.query.get('file_id')
-    if not file_id:
-        return web.Response(status=400, text="No file_id")
+    if not verify_media_token(file_id, request.query.get('exp'), request.query.get('sig')):
+        return web.Response(status=403, text="Forbidden")
     try:
         file_info = await bot_instance.get_file(file_id)
         direct_url = f"https://api.telegram.org/file/bot{bot_instance.token}/{file_info.file_path}"
@@ -212,10 +250,24 @@ async def stream_audio(request):
         return web.Response(status=500, text=str(e))
 
 
-@routes.get('/api/send_track')
+@routes.post('/api/send_track')
 async def send_track(request):
-    user_id = request.query.get('user_id')
+    user_id = _get_authenticated_user_id(request)
+    if user_id is None:
+        return web.json_response({'error': 'Unauthorized'}, status=401)
+
     file_id = request.query.get('file_id')
+    if not file_id:
+        return web.json_response({'error': 'No file_id'}, status=400)
+
+    async with aiosqlite.connect(DB_PATH) as conn:
+        async with conn.execute(
+            "SELECT 1 FROM playlist WHERE user_id = ? AND file_id = ?",
+            (user_id, file_id)
+        ) as cur:
+            if not await cur.fetchone():
+                return web.json_response({'error': 'Track not found in playlist'}, status=404)
+
     try:
         await bot_instance.send_audio(chat_id=user_id, audio=file_id)
         return web.json_response({'status': 'sent'})
@@ -226,8 +278,8 @@ async def send_track(request):
 @routes.get('/api/cover')
 async def get_cover(request):
     file_id = request.query.get('file_id')
-    if not file_id:
-        return web.Response(status=400, text="No file_id")
+    if not verify_media_token(file_id, request.query.get('exp'), request.query.get('sig')):
+        return web.Response(status=403, text="Forbidden")
         
     cover_path = get_cover_cache_path(file_id)
     

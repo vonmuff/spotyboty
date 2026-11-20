@@ -377,8 +377,8 @@
         const tg = window.Telegram.WebApp;
         tg.expand();
 
-        const urlParams = new URLSearchParams(window.location.search);
-        const userId = tg.initDataUnsafe?.user?.id || urlParams.get('user_id');
+        const initData = tg.initData || '';
+        const authHeaders = () => ({ 'X-Telegram-Init-Data': initData });
 
         let allTracks = [];
         let filteredTracks = [];
@@ -412,12 +412,15 @@
         }
 
         async function loadPlaylist() {
-            if (!userId) {
+            if (!initData) {
                 trackListEl.innerHTML = `<div class="empty-state">Откройте плейлист через кнопку в Telegram-боте.</div>`;
                 return;
             }
             try {
-                const res = await fetch(`/api/playlist?user_id=${userId}`);
+                const res = await fetch('/api/playlist', { headers: authHeaders() });
+                if (!res.ok) {
+                    throw new Error(`HTTP ${res.status}`);
+                }
                 const data = await res.json();
                 allTracks = data.tracks || [];
                 filteredTracks = [...allTracks];
@@ -441,7 +444,7 @@
                 const item = document.createElement('div');
                 item.className = `track-item ${isCurrent ? 'active' : ''}`;
 
-                const coverUrl = `/api/cover?file_id=${encodeURIComponent(track.file_id)}`;
+                const coverUrl = track.cover_url;
 
                 item.innerHTML = `
                     <div class="cover-wrapper">
@@ -489,9 +492,9 @@
             playerArtist.textContent = track.performer || 'Spotify';
 
             playerCover.style.visibility = 'visible';
-            playerCover.src = `/api/cover?file_id=${encodeURIComponent(track.file_id)}`;
+            playerCover.src = track.cover_url;
 
-            audio.src = `/api/stream?file_id=${encodeURIComponent(track.file_id)}`;
+            audio.src = track.stream_url;
             audio.play().catch(() => {});
             updatePlayButtons(true);
             renderTracks();
@@ -500,7 +503,7 @@
                 navigator.mediaSession.metadata = new MediaMetadata({
                     title: track.title || track.name,
                     artist: track.performer || 'Spotify',
-                    artwork: [{ src: `/api/cover?file_id=${encodeURIComponent(track.file_id)}`, sizes: '512x512', type: 'image/jpeg' }]
+                    artwork: [{ src: track.cover_url, sizes: '512x512', type: 'image/jpeg' }]
                 });
             }
         }
@@ -588,8 +591,11 @@
 
         async function sendToChat(fileId) {
             try {
-                await fetch(`/api/send_track?user_id=${userId}&file_id=${encodeURIComponent(fileId)}`);
-                if (tg.showPopup) {
+                const res = await fetch(`/api/send_track?file_id=${encodeURIComponent(fileId)}`, {
+                    method: 'POST',
+                    headers: authHeaders()
+                });
+                if (res.ok && tg.showPopup) {
                     tg.showPopup({ message: 'Трек отправлен в чат с ботом! 🎧' });
                 }
             } catch (e) {}
@@ -597,7 +603,11 @@
 
         async function deleteTrack(fileId) {
             try {
-                await fetch(`/api/playlist?user_id=${userId}&file_id=${encodeURIComponent(fileId)}`, { method: 'DELETE' });
+                const res = await fetch(`/api/playlist?file_id=${encodeURIComponent(fileId)}`, {
+                    method: 'DELETE',
+                    headers: authHeaders()
+                });
+                if (!res.ok) return;
                 allTracks = allTracks.filter(t => t.file_id !== fileId);
                 filteredTracks = filteredTracks.filter(t => t.file_id !== fileId);
                 renderTracks();
