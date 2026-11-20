@@ -3,12 +3,9 @@ services:
     build: .
     container_name: spotyboty
     restart: unless-stopped
-    sysctls:
-      - net.ipv6.conf.all.disable_ipv6=1
+    network_mode: host
     env_file:
       - .env
-    ports:
-      - "127.0.0.1:8080:8080"
     volumes:
       - ./tracks_cache.db:/app/tracks_cache.db
       - ./covers_cache:/app/covers_cache
