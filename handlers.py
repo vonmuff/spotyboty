@@ -1,6 +1,8 @@
 import asyncio
 import os
 import re
+import shutil
+import sys
 import tempfile
 import glob
 import json
@@ -9,6 +11,7 @@ import zipfile
 from datetime import datetime
 from typing import Any, Awaitable, Callable, Dict, Optional
 
+import aiohttp
 import aiosqlite
 import spotipy
 from spotipy.oauth2 import SpotifyClientCredentials
@@ -22,6 +25,11 @@ from config import (
     WEBAPP_URL,
     DB_PATH,
     BASE_DIR,
+    LOG_FILE,
+    COOKIES_FILE,
+    DOWNLOAD_TIMEOUT,
+    COLLECTION_DOWNLOAD_TIMEOUT,
+    MAX_COLLECTION_TRACKS,
     SPOTIPY_CLIENT_ID,
     SPOTIPY_CLIENT_SECRET,
 )
@@ -31,14 +39,58 @@ router = Router()
 
 MENU_BUTTONS = {"🆘 Как пользоваться", "ℹ️ О боте", "🎵 Мой плейлист"}
 
-LOG_FILE = os.path.join(BASE_DIR, "bot_log.jsonl")
 BLACKLIST_FILE = os.path.join(BASE_DIR, "blacklist.txt")
 TOP_SONGS_FILE = os.path.join(BASE_DIR, "top_songs.txt")
-COOKIES_FILE = os.path.join(BASE_DIR, "cookies.txt")
+
+SPOTIFY_URL_RE = re.compile(
+    r"https?://open\.spotify\.com/(?:intl-[a-zA-Z0-9-]+/)?(track|album|playlist)/([A-Za-z0-9]+)"
+)
+SHORT_SPOTIFY_URL_RE = re.compile(r"https?://(?:spotify\.link|spoti\.fi)/\S+")
 
 DOWNLOAD_SEMAPHORE = asyncio.Semaphore(2)
 
 _spotify_client: Optional[spotipy.Spotify] = None
+
+
+def parse_spotify_url(text: str) -> Optional[tuple[str, str]]:
+    """Извлекает (type, id) из любой ссылки open.spotify.com (включая /intl-xx/)."""
+    match = SPOTIFY_URL_RE.search(text)
+    if match:
+        return match.group(1), match.group(2)
+    return None
+
+
+async def resolve_spotify_short_url(url: str) -> str:
+    """Разворачивает короткие ссылки spotify.link / spoti.fi до канонического open.spotify.com URL."""
+    try:
+        timeout = aiohttp.ClientTimeout(total=8)
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            async with session.get(url, allow_redirects=True) as resp:
+                return str(resp.url)
+    except Exception as e:
+        print(f"[SHORT LINK RESOLVE ERROR] {e}")
+        return url
+
+
+async def normalize_query(raw_query: str) -> str:
+    """Нормализует Spotify-ссылки (короткие и локализованные /intl-xx/) в канонический вид."""
+    query = raw_query.strip()
+    short_match = SHORT_SPOTIFY_URL_RE.search(query)
+    if short_match:
+        resolved = await resolve_spotify_short_url(short_match.group(0))
+        parsed = parse_spotify_url(resolved)
+        if parsed:
+            return f"https://open.spotify.com/{parsed[0]}/{parsed[1]}"
+        return resolved.split("?")[0].strip()
+
+    parsed = parse_spotify_url(query)
+    if parsed:
+        return f"https://open.spotify.com/{parsed[0]}/{parsed[1]}"
+
+    if "open.spotify.com/" in query:
+        return query.split("?")[0].strip()
+
+    return query
 
 
 def get_spotify_client() -> spotipy.Spotify:
@@ -82,38 +134,61 @@ def _search_spotify_sync(query: str, limit: int = 5) -> list[dict]:
 
 def _inspect_spotify_metadata_sync(query: str) -> Optional[dict]:
     """
-    Быстрая разведка метаданных трека/альбома в Spotify ДО запуска скачивания spotdl.
-    Возвращает чистые поля performer, title и url, чтобы проверить блэклист и кэш без нагрузки на сервер.
+    Быстрая разведка метаданных трека/альбома/плейлиста в Spotify ДО запуска скачивания spotdl.
+    Возвращает чистые поля performer, title, url и total_tracks для проверки блэклиста, лимита и кэша.
     """
     sp = get_spotify_client()
     try:
-        if "open.spotify.com/track/" in query:
-            track_id = query.split("open.spotify.com/track/")[1].split("/")[0].split("?")[0]
-            item = sp.track(track_id)
-            artists = ", ".join(a.get("name", "") for a in item.get("artists", []) if a.get("name"))
-            return {
-                "type": "track",
-                "title": item.get("name", "Без названия"),
-                "performer": artists or "Spotify",
-                "url": f"https://open.spotify.com/track/{track_id}",
-            }
-        elif "open.spotify.com/album/" in query:
-            album_id = query.split("open.spotify.com/album/")[1].split("/")[0].split("?")[0]
-            album = sp.album(album_id)
-            artists_set = set()
-            for a in album.get("artists", []):
-                if a.get("name"):
-                    artists_set.add(a["name"])
-            for t in album.get("tracks", {}).get("items", []):
-                for a in t.get("artists", []):
+        parsed = parse_spotify_url(query)
+        if parsed:
+            kind, item_id = parsed
+            if kind == "track":
+                item = sp.track(item_id)
+                artists = ", ".join(a.get("name", "") for a in item.get("artists", []) if a.get("name"))
+                return {
+                    "type": "track",
+                    "title": item.get("name", "Без названия"),
+                    "performer": artists or "Spotify",
+                    "url": f"https://open.spotify.com/track/{item_id}",
+                    "total_tracks": 1,
+                }
+            elif kind == "album":
+                album = sp.album(item_id)
+                artists_set = set()
+                for a in album.get("artists", []):
                     if a.get("name"):
                         artists_set.add(a["name"])
-            return {
-                "type": "album",
-                "title": album.get("name", "Альбом"),
-                "performer": ", ".join(artists_set),
-                "url": f"https://open.spotify.com/album/{album_id}",
-            }
+                for t in album.get("tracks", {}).get("items", []):
+                    for a in t.get("artists", []):
+                        if a.get("name"):
+                            artists_set.add(a["name"])
+                total_tracks = album.get("total_tracks") or len(album.get("tracks", {}).get("items", []))
+                return {
+                    "type": "album",
+                    "title": album.get("name", "Альбом"),
+                    "performer": ", ".join(artists_set),
+                    "url": f"https://open.spotify.com/album/{item_id}",
+                    "total_tracks": total_tracks,
+                }
+            elif kind == "playlist":
+                playlist = sp.playlist(
+                    item_id,
+                    fields="name,tracks(total,items(track(artists(name))))"
+                )
+                tracks_data = playlist.get("tracks") or {}
+                artists_set = set()
+                for entry in tracks_data.get("items", []):
+                    track_obj = (entry or {}).get("track") or {}
+                    for a in track_obj.get("artists", []):
+                        if a.get("name"):
+                            artists_set.add(a["name"])
+                return {
+                    "type": "playlist",
+                    "title": playlist.get("name", "Плейлист"),
+                    "performer": ", ".join(artists_set),
+                    "url": f"https://open.spotify.com/playlist/{item_id}",
+                    "total_tracks": tracks_data.get("total", 0),
+                }
         elif "spotify.com" not in query.lower():
             res = _search_spotify_sync(query, limit=1)
             if res:
@@ -123,6 +198,7 @@ def _inspect_spotify_metadata_sync(query: str) -> Optional[dict]:
                     "title": first["title"],
                     "performer": first["performer"],
                     "url": first["url"],
+                    "total_tracks": 1,
                 }
     except Exception as e:
         print(f"[METADATA INSPECT ERROR] {e}")
@@ -230,26 +306,26 @@ async def find_cached_track(conn: aiosqlite.Connection, cache_key: str, raw_quer
 
 
 def get_subprocess_env() -> dict:
-    """Формирует окружение с правильным PATH, чтобы systemd видел deno, ffmpeg и venv"""
+    """Формирует окружение с правильным PATH без хардкода домашних путей."""
     env = os.environ.copy()
-    extra_paths = [
-        "/home/muffin/spotyboty/venv/bin",
-        "/home/muffin/.deno/bin",
+    candidates = [
+        os.path.dirname(sys.executable),
+        os.path.expanduser("~/.deno/bin"),
         "/usr/local/bin",
         "/usr/bin",
         "/bin",
     ]
-    current_path = env.get("PATH", "")
-    env["PATH"] = ":".join(extra_paths) + (f":{current_path}" if current_path else "")
-    env["HOME"] = "/home/muffin"
+    current_parts = [p for p in env.get("PATH", "").split(":") if p]
+    extra_paths = [p for p in candidates if os.path.isdir(p) and p not in current_parts]
+    if extra_paths:
+        env["PATH"] = ":".join(extra_paths + current_parts)
     return env
 
 
 def build_spotdl_cmd(query: str, temp_dir: str) -> list[str]:
-    """Точная копия рабочей консольной команды spotdl"""
-    spotdl_bin = "/home/muffin/spotyboty/venv/bin/spotdl"
-    if not os.path.exists(spotdl_bin):
-        spotdl_bin = "spotdl"
+    """Формирует консольную команду spotdl с автопоиском бинарника."""
+    venv_spotdl = os.path.join(os.path.dirname(sys.executable), "spotdl")
+    spotdl_bin = venv_spotdl if os.path.isfile(venv_spotdl) else (shutil.which("spotdl") or "spotdl")
 
     client_id = SPOTIPY_CLIENT_ID.strip() if SPOTIPY_CLIENT_ID else ""
     client_secret = SPOTIPY_CLIENT_SECRET.strip() if SPOTIPY_CLIENT_SECRET else ""
@@ -262,8 +338,9 @@ def build_spotdl_cmd(query: str, temp_dir: str) -> list[str]:
         '--client-secret', client_secret,
     ]
 
-    if os.path.exists(COOKIES_FILE):
-        cmd.extend(['--cookie-file', COOKIES_FILE])
+    cookies_path = COOKIES_FILE if os.path.isfile(COOKIES_FILE) else os.path.join(BASE_DIR, "cookies.txt")
+    if os.path.isfile(cookies_path):
+        cmd.extend(['--cookie-file', cookies_path])
 
     return cmd
 
@@ -312,6 +389,17 @@ async def process_and_send_download(
                 await existing_status_msg.edit_text(block_text)
             else:
                 await target_message.answer(block_text)
+            return
+
+        if meta.get("type") in ("album", "playlist") and meta.get("total_tracks", 0) > MAX_COLLECTION_TRACKS:
+            limit_text = (
+                f"🚫 Слишком большой {('альбом' if meta['type'] == 'album' else 'плейлист')} "
+                f"({meta['total_tracks']} треков). Максимальный лимит: {MAX_COLLECTION_TRACKS} треков."
+            )
+            if existing_status_msg:
+                await existing_status_msg.edit_text(limit_text)
+            else:
+                await target_message.answer(limit_text)
             return
 
         if not extra_lookup_text and meta.get("type") == "track":
@@ -405,8 +493,25 @@ async def process_and_send_download(
                                 pass
 
                 updater_task = asyncio.create_task(progress_updater())
-                stdout_bytes, stderr_bytes = await process.communicate()
-                updater_task.cancel()
+                is_collection = (meta and meta.get("type") in ("album", "playlist")) or (
+                    parse_spotify_url(clean_query) is not None and parse_spotify_url(clean_query)[0] in ("album", "playlist")
+                )
+                timeout_sec = COLLECTION_DOWNLOAD_TIMEOUT if is_collection else DOWNLOAD_TIMEOUT
+
+                try:
+                    stdout_bytes, stderr_bytes = await asyncio.wait_for(
+                        process.communicate(),
+                        timeout=timeout_sec
+                    )
+                except asyncio.TimeoutError:
+                    process.kill()
+                    await process.wait()
+                    await status_msg.edit_text(
+                        "⏱ Превышено время ожидания скачивания. Попробуй еще раз позже или выбери отдельный трек."
+                    )
+                    return
+                finally:
+                    updater_task.cancel()
 
                 download_time = round(time.time() - start_time, 2)
                 downloaded_files = [
@@ -680,7 +785,12 @@ async def cmd_preload(message: types.Message):
                         stderr=asyncio.subprocess.PIPE,
                         env=get_subprocess_env()
                     )
-                    await proc.communicate()
+                    try:
+                        await asyncio.wait_for(proc.communicate(), timeout=DOWNLOAD_TIMEOUT)
+                    except asyncio.TimeoutError:
+                        proc.kill()
+                        await proc.wait()
+                        continue
                     files = [
                         f for f in glob.glob(os.path.join(temp_dir, '*.*'))
                         if not f.endswith('.part') and not f.endswith('.ytdl')
@@ -705,14 +815,8 @@ async def cmd_preload(message: types.Message):
 @router.message(F.text)
 async def handle_music_request(message: types.Message):
     query = message.text.strip()
-    query_lower = query.lower()
-
-    if "open.spotify.com/" in query:
-        clean_query = query.split("?")[0].strip()
-    else:
-        clean_query = query
-
-    cache_key = clean_query if "spotify.com" in clean_query else query_lower
+    clean_query = await normalize_query(query)
+    cache_key = clean_query if "spotify.com" in clean_query else clean_query.lower()
 
     log_entry = {
         "timestamp": datetime.now().isoformat(),
