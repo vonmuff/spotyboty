@@ -382,9 +382,14 @@
 
         let allTracks = [];
         let filteredTracks = [];
-        let currentIndex = -1;
+        let currentFileId = null;
         let isRepeat = false;
         let isSeeking = false;
+
+        function getCurrentIndex() {
+            if (!currentFileId) return -1;
+            return filteredTracks.findIndex(t => t.file_id === currentFileId);
+        }
 
         const audio = document.getElementById('audioElement');
         const trackListEl = document.getElementById('trackList');
@@ -439,8 +444,8 @@
             }
 
             trackListEl.innerHTML = '';
-            filteredTracks.forEach((track, idx) => {
-                const isCurrent = currentIndex !== -1 && filteredTracks[currentIndex]?.file_id === track.file_id;
+            filteredTracks.forEach((track) => {
+                const isCurrent = currentFileId !== null && currentFileId === track.file_id;
                 const item = document.createElement('div');
                 item.className = `track-item ${isCurrent ? 'active' : ''}`;
 
@@ -475,17 +480,17 @@
                         if (action === 'delete') deleteTrack(track.file_id);
                         return;
                     }
-                    playTrack(idx);
+                    playTrackById(track.file_id);
                 });
 
                 trackListEl.appendChild(item);
             });
         }
 
-        function playTrack(index) {
-            if (index < 0 || index >= filteredTracks.length) return;
-            currentIndex = index;
-            const track = filteredTracks[currentIndex];
+        function playTrackById(fileId) {
+            const track = filteredTracks.find(t => t.file_id === fileId) || allTracks.find(t => t.file_id === fileId);
+            if (!track) return;
+            currentFileId = track.file_id;
 
             playerBar.classList.add('visible');
             playerTitle.textContent = track.title || track.name;
@@ -508,14 +513,58 @@
             }
         }
 
+        function playPrevTrack() {
+            if (filteredTracks.length === 0) return;
+            if (audio.currentTime > 3) {
+                audio.currentTime = 0;
+                return;
+            }
+            const idx = getCurrentIndex();
+            const prevIdx = idx === -1 ? filteredTracks.length - 1 : (idx - 1 + filteredTracks.length) % filteredTracks.length;
+            playTrackById(filteredTracks[prevIdx].file_id);
+        }
+
+        function playNextTrack() {
+            if (filteredTracks.length === 0) return;
+            const idx = getCurrentIndex();
+            const nextIdx = idx === -1 ? 0 : (idx + 1) % filteredTracks.length;
+            playTrackById(filteredTracks[nextIdx].file_id);
+        }
+
         function updatePlayButtons(playing) {
             playIcon.style.display = playing ? 'none' : 'block';
             pauseIcon.style.display = playing ? 'block' : 'none';
+            if ('mediaSession' in navigator) {
+                navigator.mediaSession.playbackState = playing ? 'playing' : 'paused';
+            }
+        }
+
+        if ('mediaSession' in navigator) {
+            const setHandler = (action, fn) => {
+                try {
+                    navigator.mediaSession.setActionHandler(action, fn);
+                } catch (e) {}
+            };
+            setHandler('play', () => {
+                if (!currentFileId && filteredTracks.length > 0) {
+                    playTrackById(filteredTracks[0].file_id);
+                } else {
+                    audio.play().catch(() => {});
+                }
+            });
+            setHandler('pause', () => audio.pause());
+            setHandler('previoustrack', playPrevTrack);
+            setHandler('nexttrack', playNextTrack);
+            setHandler('seekto', (details) => {
+                if (details && typeof details.seekTime === 'number' && !isNaN(audio.duration)) {
+                    audio.currentTime = Math.max(0, Math.min(details.seekTime, audio.duration));
+                }
+            });
         }
 
         playPauseBtn.addEventListener('click', () => {
-            if (currentIndex === -1 && filteredTracks.length > 0) {
-                playTrack(0);
+            if (!currentFileId && filteredTracks.length > 0) {
+                playTrackById(filteredTracks[0].file_id);
                 return;
             }
             if (audio.paused) {
@@ -525,21 +574,8 @@
             }
         });
 
-        prevBtn.addEventListener('click', () => {
-            if (filteredTracks.length === 0) return;
-            if (audio.currentTime > 3) {
-                audio.currentTime = 0;
-                return;
-            }
-            const nextIdx = (currentIndex - 1 + filteredTracks.length) % filteredTracks.length;
-            playTrack(nextIdx);
-        });
-
-        nextBtn.addEventListener('click', () => {
-            if (filteredTracks.length === 0) return;
-            const nextIdx = (currentIndex + 1) % filteredTracks.length;
-            playTrack(nextIdx);
-        });
+        prevBtn.addEventListener('click', playPrevTrack);
+        nextBtn.addEventListener('click', playNextTrack);
 
         repeatBtn.addEventListener('click', () => {
             isRepeat = !isRepeat;
@@ -564,8 +600,7 @@
                 audio.currentTime = 0;
                 audio.play();
             } else if (filteredTracks.length > 0) {
-                const nextIdx = (currentIndex + 1) % filteredTracks.length;
-                playTrack(nextIdx);
+                playNextTrack();
             }
         });
 
