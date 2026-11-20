@@ -1,14 +1,14 @@
 import asyncio
+import logging
 import os
 import re
 import shutil
 import sys
 import tempfile
 import glob
-import json
 import time
 import zipfile
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Awaitable, Callable, Dict, Optional
 
 import aiohttp
@@ -25,7 +25,6 @@ from config import (
     WEBAPP_URL,
     DB_PATH,
     BASE_DIR,
-    LOG_FILE,
     COOKIES_FILE,
     DOWNLOAD_TIMEOUT,
     COLLECTION_DOWNLOAD_TIMEOUT,
@@ -33,7 +32,10 @@ from config import (
     SPOTIPY_CLIENT_ID,
     SPOTIPY_CLIENT_SECRET,
 )
+from database import log_request
 from keyboards import main_keyboard, get_playlist_keyboard
+
+logger = logging.getLogger(__name__)
 
 router = Router()
 
@@ -50,6 +52,7 @@ SHORT_SPOTIFY_URL_RE = re.compile(r"https?://(?:spotify\.link|spoti\.fi)/\S+")
 DOWNLOAD_SEMAPHORE = asyncio.Semaphore(2)
 
 _spotify_client: Optional[spotipy.Spotify] = None
+_blacklist_cache: tuple[Optional[float], Optional[re.Pattern]] = (None, None)
 
 
 def parse_spotify_url(text: str) -> Optional[tuple[str, str]]:
@@ -68,7 +71,7 @@ async def resolve_spotify_short_url(url: str) -> str:
             async with session.get(url, allow_redirects=True) as resp:
                 return str(resp.url)
     except Exception as e:
-        print(f"[SHORT LINK RESOLVE ERROR] {e}")
+        logger.warning("Short link resolve error: %s", e)
         return url
 
 
@@ -201,7 +204,7 @@ def _inspect_spotify_metadata_sync(query: str) -> Optional[dict]:
                     "total_tracks": 1,
                 }
     except Exception as e:
-        print(f"[METADATA INSPECT ERROR] {e}")
+        logger.warning("Metadata inspect error: %s", e)
     return None
 
 
@@ -241,24 +244,52 @@ class ThrottlingMiddleware(BaseMiddleware):
 router.message.middleware(ThrottlingMiddleware(COOLDOWN_SECONDS))
 
 
+def _get_blacklist_pattern() -> Optional[re.Pattern]:
+    """Кэширует скомпилированный regex блэклиста в памяти и обновляет только при изменении mtime файла."""
+    global _blacklist_cache
+    if not os.path.isfile(BLACKLIST_FILE):
+        _blacklist_cache = (None, None)
+        return None
+
+    mtime = os.path.getmtime(BLACKLIST_FILE)
+    cached_mtime, cached_pattern = _blacklist_cache
+    if cached_mtime == mtime:
+        return cached_pattern
+
+    with open(BLACKLIST_FILE, "r", encoding="utf-8") as f:
+        entries = sorted(
+            {line.strip().lower() for line in f if len(line.strip()) >= 2},
+            key=len,
+            reverse=True,
+        )
+
+    if not entries:
+        _blacklist_cache = (mtime, None)
+        return None
+
+    joined = "|".join(re.escape(e) for e in entries)
+    pattern = re.compile(
+        rf"(?<![a-zа-яёіїєґ0-9])(?:{joined})(?![a-zа-яёіїєґ0-9])",
+        re.IGNORECASE,
+    )
+    _blacklist_cache = (mtime, pattern)
+    return pattern
+
+
 def find_blacklisted_artist(artist_text: str) -> Optional[str]:
     """
     Проверяет строку ИСПОЛНИТЕЛЯ на наличие запрещенных артистов из blacklist.txt.
     Ищет только полные совпадения слов/имён по границам слов.
     """
-    if not os.path.exists(BLACKLIST_FILE) or not artist_text:
+    if not artist_text:
         return None
 
-    text_lower = artist_text.lower()
-    with open(BLACKLIST_FILE, "r", encoding="utf-8") as f:
-        for line in f:
-            bad_entry = line.strip().lower()
-            if len(bad_entry) < 2:
-                continue
-            pattern = rf"(?<![a-zа-яёіїєґ0-9]){re.escape(bad_entry)}(?![a-zа-яёіїєґ0-9])"
-            if re.search(pattern, text_lower):
-                return bad_entry
-    return None
+    pattern = _get_blacklist_pattern()
+    if pattern is None:
+        return None
+
+    match = pattern.search(artist_text.lower())
+    return match.group(0) if match else None
 
 
 async def find_cached_track(conn: aiosqlite.Connection, cache_key: str, raw_query: str) -> Optional[str]:
@@ -372,17 +403,17 @@ async def process_and_send_download(
     if meta:
         bad_artist = find_blacklisted_artist(meta["performer"])
         if bad_artist:
-            violation_entry = {
-                "timestamp": datetime.now().isoformat(),
-                "user_id": user_id,
-                "request": clean_query,
-                "action": "blocked_by_metadata_precheck",
-                "blocked_artist": bad_artist,
-                "performer": meta["performer"],
-                "title": meta["title"],
-            }
-            with open(LOG_FILE, "a", encoding="utf-8") as log_f:
-                log_f.write(json.dumps(violation_entry, ensure_ascii=False) + "\n")
+            await log_request(
+                user_id=user_id,
+                request=clean_query,
+                cache_key=cache_key,
+                action="blocked_by_metadata_precheck",
+                details={
+                    "blocked_artist": bad_artist,
+                    "performer": meta["performer"],
+                    "title": meta["title"],
+                },
+            )
 
             block_text = f"🚫 Скачивание запрещено: исполнитель «{meta['performer']}» находится в черном списке."
             if existing_status_msg:
@@ -526,16 +557,16 @@ async def process_and_send_download(
                         f_title, f_perf = parse_filename_meta(file_path)
                         bad_artist = find_blacklisted_artist(f_perf)
                         if bad_artist:
-                            violation_entry = {
-                                "timestamp": datetime.now().isoformat(),
-                                "user_id": user_id,
-                                "request": clean_query,
-                                "action": "blocked_by_file",
-                                "blocked_artist": bad_artist,
-                                "filename": os.path.basename(file_path)
-                            }
-                            with open(LOG_FILE, "a", encoding="utf-8") as log_f:
-                                log_f.write(json.dumps(violation_entry, ensure_ascii=False) + "\n")
+                            await log_request(
+                                user_id=user_id,
+                                request=clean_query,
+                                cache_key=cache_key,
+                                action="blocked_by_file",
+                                details={
+                                    "blocked_artist": bad_artist,
+                                    "filename": os.path.basename(file_path),
+                                },
+                            )
                         else:
                             safe_files.append(file_path)
 
@@ -608,13 +639,14 @@ async def process_and_send_download(
                     await status_msg.delete()
                 else:
                     out_str = (stdout_bytes.decode("utf-8", errors="ignore") + "\n" + stderr_bytes.decode("utf-8", errors="ignore")).strip()
-                    print(f"[SPOTDL DEBUG] Query: {clean_query}\nOutput:\n{out_str}")
+                    logger.warning("spotdl returned no files for query=%r:\n%s", clean_query, out_str)
                     if user_id == ADMIN_ID and out_str:
                         short_err = out_str[-600:]
                         await status_msg.edit_text(f"❌ Ничего не найдено.\n\n🛠 Лог для админа:\n{short_err}")
                     else:
                         await status_msg.edit_text("❌ Ничего не найдено.")
             except Exception as e:
+                logger.exception("Download processing error for query=%r", clean_query)
                 await status_msg.edit_text(f"❌ Ошибка: {e}")
 
 
@@ -623,9 +655,9 @@ async def cmd_start(message: types.Message):
     await message.answer(
         "Привет! Я музыкальный бот 🎧\n\n"
         "Отправь мне ссылку на Spotify или напиши название песни.\n"
-        "⚠️ **Важно:** чтобы я нашел правильный трек, всегда пиши ИМЯ АВТОРА и название (например, `Queen - Bohemian Rhapsody`).",
+        "⚠️ <b>Важно:</b> чтобы я нашел правильный трек, всегда пиши ИМЯ АВТОРА и название (например, <code>Queen - Bohemian Rhapsody</code>).",
         reply_markup=main_keyboard,
-        parse_mode="Markdown"
+        parse_mode="HTML"
     )
 
 
@@ -643,39 +675,32 @@ async def btn_info(message: types.Message):
 async def cmd_stats(message: types.Message):
     if message.from_user.id != ADMIN_ID:
         return
-    
+
+    cutoff_iso = (datetime.now() - timedelta(days=30)).isoformat()
+
     async with aiosqlite.connect(DB_PATH) as conn:
         async with conn.execute("SELECT COUNT(*) FROM tracks") as cur:
             tracks_count = (await cur.fetchone())[0]
         async with conn.execute("SELECT COUNT(DISTINCT user_id) FROM playlist") as cur:
             playlists_count = (await cur.fetchone())[0]
-        
-    blocks, total_requests = 0, 0
-    monthly_users = set()
-    now = datetime.now()
+        async with conn.execute("SELECT COUNT(*) FROM request_logs") as cur:
+            total_requests = (await cur.fetchone())[0]
+        async with conn.execute("SELECT COUNT(*) FROM request_logs WHERE action LIKE 'blocked%'") as cur:
+            blocks = (await cur.fetchone())[0]
+        async with conn.execute(
+            "SELECT COUNT(DISTINCT user_id) FROM request_logs WHERE created_at >= ?",
+            (cutoff_iso,),
+        ) as cur:
+            monthly_users = (await cur.fetchone())[0]
 
-    if os.path.exists(LOG_FILE):
-        with open(LOG_FILE, "r", encoding="utf-8") as f:
-            for line in f:
-                total_requests += 1
-                if "blocked" in line:
-                    blocks += 1
-                try:
-                    log_entry = json.loads(line)
-                    log_time = datetime.fromisoformat(log_entry["timestamp"])
-                    if (now - log_time).days <= 30:
-                        monthly_users.add(log_entry["user_id"])
-                except (json.JSONDecodeError, KeyError, ValueError):
-                    pass
-                    
     await message.answer(
-        f"📊 **Статистика бота:**\n\n"
-        f"🎵 Треков в кэше: `{tracks_count}`\n"
-        f"👥 Пользователей с плейлистами: `{playlists_count}`\n"
-        f"📅 Активных юзеров (30 дней): `{len(monthly_users)}`\n"
-        f"📈 Всего запросов: `{total_requests}`\n"
-        f"🚫 Блокировок (блэклист): `{blocks}`",
-        parse_mode="Markdown"
+        f"📊 <b>Статистика бота:</b>\n\n"
+        f"🎵 Треков в кэше: <code>{tracks_count}</code>\n"
+        f"👥 Пользователей с плейлистами: <code>{playlists_count}</code>\n"
+        f"📅 Активных юзеров (30 дней): <code>{monthly_users}</code>\n"
+        f"📈 Всего запросов: <code>{total_requests}</code>\n"
+        f"🚫 Блокировок (блэклист): <code>{blocks}</code>",
+        parse_mode="HTML"
     )
 
 
@@ -818,23 +843,20 @@ async def handle_music_request(message: types.Message):
     clean_query = await normalize_query(query)
     cache_key = clean_query if "spotify.com" in clean_query else clean_query.lower()
 
-    log_entry = {
-        "timestamp": datetime.now().isoformat(),
-        "user_id": message.from_user.id,
-        "full_name": message.from_user.full_name,
-        "username": message.from_user.username,
-        "request": query,
-        "cache_key": cache_key,
-        "action": "allowed"
-    }
-    with open(LOG_FILE, "a", encoding="utf-8") as f:
-        f.write(json.dumps(log_entry, ensure_ascii=False) + "\n")
+    await log_request(
+        user_id=message.from_user.id,
+        full_name=message.from_user.full_name,
+        username=message.from_user.username,
+        request=query,
+        cache_key=cache_key,
+        action="allowed",
+    )
 
     if "spotify.com" not in clean_query:
         try:
             results = await asyncio.to_thread(_search_spotify_sync, clean_query, 5)
         except Exception as e:
-            print(f"[SPOTIPY SEARCH ERROR] {e}")
+            logger.warning("Spotipy search error: %s", e)
             results = []
 
         if results:

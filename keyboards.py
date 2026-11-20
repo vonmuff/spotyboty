@@ -30,12 +30,3 @@ async def get_playlist_keyboard(user_id: int, file_id: str) -> InlineKeyboardMar
         return InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="➕ В плейлист", callback_data="add_to_pl")]
         ])
-
-def get_pagination_keyboard(current_page: int, total_pages: int) -> InlineKeyboardMarkup:
-    buttons = []
-    if current_page > 1:
-        buttons.append(InlineKeyboardButton(text="⬅️", callback_data=f"page_{current_page - 1}"))
-    buttons.append(InlineKeyboardButton(text=f"{current_page}/{total_pages}", callback_data="ignore"))
-    if current_page < total_pages:
-        buttons.append(InlineKeyboardButton(text="➡️", callback_data=f"page_{current_page + 1}"))
-    return InlineKeyboardMarkup(inline_keyboard=[buttons])
