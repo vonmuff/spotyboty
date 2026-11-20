@@ -1,6 +1,7 @@
 import asyncio
 import hashlib
 import hmac
+import logging
 import os
 import tempfile
 import time
@@ -15,6 +16,8 @@ from mutagen.mp3 import MP3
 from mutagen.id3 import ID3, APIC
 from config import DB_PATH, BASE_DIR, COVERS_DIR, MEDIA_SIGN_KEY
 
+logger = logging.getLogger(__name__)
+
 routes = web.RouteTableDef()
 bot_instance: Bot = None
 http_session: ClientSession = None
@@ -24,6 +27,30 @@ os.makedirs(COVERS_DIR, exist_ok=True)
 METADATA_SEMAPHORE = asyncio.Semaphore(2)
 _resolving_tasks: set[str] = set()
 MEDIA_TOKEN_TTL = 12 * 3600
+
+FILE_PATH_CACHE_TTL = 1800  # 30 минут
+FILE_PATH_CACHE_MAX_SIZE = 1000
+_file_path_cache: dict[str, tuple[str, float]] = {}
+
+
+async def get_cached_file_path(file_id: str, force_refresh: bool = False) -> str:
+    """Кэширует Telegram file_path в памяти на 30 минут, снижая нагрузку на Bot API при Range-запросах."""
+    now = time.monotonic()
+    if not force_refresh:
+        cached = _file_path_cache.get(file_id)
+        if cached and cached[1] > now:
+            return cached[0]
+
+    file_info = await bot_instance.get_file(file_id)
+    if len(_file_path_cache) >= FILE_PATH_CACHE_MAX_SIZE:
+        expired = [k for k, (_, exp) in _file_path_cache.items() if exp <= now]
+        for k in expired:
+            _file_path_cache.pop(k, None)
+        if len(_file_path_cache) >= FILE_PATH_CACHE_MAX_SIZE:
+            _file_path_cache.pop(next(iter(_file_path_cache)))
+
+    _file_path_cache[file_id] = (file_info.file_path, now + FILE_PATH_CACHE_TTL)
+    return file_info.file_path
 
 
 def _get_authenticated_user_id(request: web.Request) -> Optional[int]:
@@ -93,16 +120,16 @@ async def resolve_track_metadata(file_id: str):
 
     async with METADATA_SEMAPHORE:
         try:
-            file_info = await bot_instance.get_file(file_id)
+            file_path = await get_cached_file_path(file_id)
             with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as temp_mp3:
                 temp_name = temp_mp3.name
 
-            await bot_instance.download_file(file_info.file_path, temp_name)
+            await bot_instance.download_file(file_path, temp_name)
 
             try:
                 title, performer = await asyncio.to_thread(_extract_id3_sync, temp_name, cover_path)
             except Exception as e:
-                print(f"Ошибка чтения ID3: {e}")
+                logger.warning("Ошибка чтения ID3 для %s: %s", file_id, e)
             finally:
                 if os.path.exists(temp_name):
                     os.unlink(temp_name)
@@ -119,7 +146,7 @@ async def resolve_track_metadata(file_id: str):
                     )
                     await conn.commit()
         except Exception as e:
-            print(f"Ошибка загрузки файла для метаданных: {e}")
+            logger.warning("Ошибка загрузки файла для метаданных %s: %s", file_id, e)
         finally:
             _resolving_tasks.discard(file_id)
 
@@ -131,6 +158,18 @@ def schedule_metadata_resolution(file_id: str):
     if file_id not in _resolving_tasks:
         _resolving_tasks.add(file_id)
         asyncio.create_task(resolve_track_metadata(file_id))
+
+
+@routes.get('/health')
+async def healthcheck(request):
+    try:
+        async with aiosqlite.connect(DB_PATH) as conn:
+            async with conn.execute("SELECT 1") as cur:
+                await cur.fetchone()
+        return web.json_response({'status': 'ok'})
+    except Exception as e:
+        logger.error("Healthcheck failed: %s", e)
+        return web.json_response({'status': 'error'}, status=503)
 
 
 @routes.get('/')
@@ -212,15 +251,12 @@ async def delete_track(request):
 
 @routes.get('/api/stream')
 async def stream_audio(request):
-    """Проксирует аудиопоток с поддержкой Range-запросов для плавной перемотки в плеере"""
+    """Проксирует аудиопоток с поддержкой Range-запросов и кэшированием Telegram file_path"""
     global http_session
     file_id = request.query.get('file_id')
     if not verify_media_token(file_id, request.query.get('exp'), request.query.get('sig')):
         return web.Response(status=403, text="Forbidden")
     try:
-        file_info = await bot_instance.get_file(file_id)
-        direct_url = f"https://api.telegram.org/file/bot{bot_instance.token}/{file_info.file_path}"
-        
         headers = {}
         if 'Range' in request.headers:
             headers['Range'] = request.headers['Range']
@@ -228,25 +264,36 @@ async def stream_audio(request):
         if http_session is None or http_session.closed:
             http_session = ClientSession()
 
-        async with http_session.get(direct_url, headers=headers) as resp:
-            response = web.StreamResponse(
-                status=resp.status,
-                headers={
-                    'Content-Type': resp.headers.get('Content-Type', 'audio/mpeg'),
-                    'Accept-Ranges': 'bytes',
-                }
-            )
-            if 'Content-Range' in resp.headers:
-                response.headers['Content-Range'] = resp.headers['Content-Range']
-            if 'Content-Length' in resp.headers:
-                response.headers['Content-Length'] = resp.headers['Content-Length']
+        for attempt in range(2):
+            file_path = await get_cached_file_path(file_id, force_refresh=(attempt > 0))
+            direct_url = f"https://api.telegram.org/file/bot{bot_instance.token}/{file_path}"
 
-            await response.prepare(request)
-            async for chunk in resp.content.iter_chunked(65536):
-                await response.write(chunk)
-            await response.write_eof()
-            return response
+            async with http_session.get(direct_url, headers=headers) as resp:
+                if resp.status == 404 and attempt == 0:
+                    _file_path_cache.pop(file_id, None)
+                    continue
+
+                response = web.StreamResponse(
+                    status=resp.status,
+                    headers={
+                        'Content-Type': resp.headers.get('Content-Type', 'audio/mpeg'),
+                        'Accept-Ranges': 'bytes',
+                    }
+                )
+                if 'Content-Range' in resp.headers:
+                    response.headers['Content-Range'] = resp.headers['Content-Range']
+                if 'Content-Length' in resp.headers:
+                    response.headers['Content-Length'] = resp.headers['Content-Length']
+
+                await response.prepare(request)
+                async for chunk in resp.content.iter_chunked(65536):
+                    await response.write(chunk)
+                await response.write_eof()
+                return response
+
+        return web.Response(status=404, text="File not found")
     except Exception as e:
+        logger.warning("Ошибка стриминга %s: %s", file_id, e)
         return web.Response(status=500, text=str(e))
 
 

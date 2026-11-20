@@ -1,4 +1,5 @@
 import asyncio
+import logging
 from aiohttp import web
 from aiogram import Bot, Dispatcher
 from aiogram.webhook.aiohttp_server import SimpleRequestHandler, setup_application
@@ -14,6 +15,12 @@ from database import init_db
 from handlers import router
 from webapp import create_web_app
 
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+)
+logger = logging.getLogger(__name__)
+
 
 async def on_startup(bot: Bot):
     if USE_WEBHOOK:
@@ -22,10 +29,10 @@ async def on_startup(bot: Bot):
             secret_token=WEBHOOK_SECRET,
             drop_pending_updates=True
         )
-        print(f"🔗 Webhook успешно установлен: {WEBHOOK_URL}")
+        logger.info("Webhook установлен: %s", WEBHOOK_URL)
     else:
         await bot.delete_webhook(drop_pending_updates=True)
-        print("📡 Режим Polling активирован (Webhook отключен).")
+        logger.info("Режим Polling активирован (Webhook отключен).")
 
 
 async def on_shutdown(bot: Bot):
@@ -57,17 +64,23 @@ async def main():
         await runner.setup()
         site = web.TCPSite(runner, '0.0.0.0', 8080)
         await site.start()
-        print("🚀 Бот (Webhook) и Web-виджет запущены на порту 8080!")
+        logger.info("Бот (Webhook) и Web-виджет запущены на порту 8080")
         
-        await asyncio.Event().wait()
+        try:
+            await asyncio.Event().wait()
+        finally:
+            await runner.cleanup()
     else:
         runner = web.AppRunner(app)
         await runner.setup()
         site = web.TCPSite(runner, '0.0.0.0', 8080)
         await site.start()
-        print("🌐 Web-виджет запущен на порту 8080")
-        print("🚀 Бот запущен в режиме Polling!")
-        await dp.start_polling(bot)
+        logger.info("Web-виджет запущен на порту 8080")
+        logger.info("Бот запущен в режиме Polling")
+        try:
+            await dp.start_polling(bot)
+        finally:
+            await runner.cleanup()
 
 
 if __name__ == "__main__":
