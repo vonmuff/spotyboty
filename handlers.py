@@ -18,7 +18,13 @@ import spotipy
 from spotipy.oauth2 import SpotifyClientCredentials
 from aiogram import Router, BaseMiddleware, types, F
 from aiogram.filters import Command
-from aiogram.types import FSInputFile, WebAppInfo, InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.types import (
+    BufferedInputFile,
+    FSInputFile,
+    WebAppInfo,
+    InlineKeyboardMarkup,
+    InlineKeyboardButton,
+)
 
 from config import (
     ADMIN_ID,
@@ -35,6 +41,7 @@ from config import (
     SPOTIPY_CLIENT_SECRET,
 )
 from database import log_request
+from downloader import download_track_fast_sync, download_cover_bytes, save_cover_to_cache
 from keyboards import main_keyboard, get_playlist_keyboard
 
 logger = logging.getLogger(__name__)
@@ -143,6 +150,17 @@ def get_spotify_client() -> spotipy.Spotify:
     return _spotify_client
 
 
+def _extract_spotify_covers(item: dict) -> tuple[Optional[str], Optional[str]]:
+    """Возвращает (cover_url для WebApp 640px, thumb_url для Telegram ~300px)."""
+    images = (item.get("album") or {}).get("images") or []
+    if not images:
+        return None, None
+    cover_url = images[0].get("url")
+    # Telegram thumbnail лучше всего принимает ~300x300 (обычно images[1])
+    thumb_url = images[1].get("url") if len(images) > 1 else cover_url
+    return cover_url, thumb_url
+
+
 def _search_spotify_sync(query: str, limit: int = 5) -> list[dict]:
     """Синхронный поиск топ-5 треков в Spotify API (вызывается через asyncio.to_thread)"""
     sp = get_spotify_client()
@@ -158,20 +176,24 @@ def _search_spotify_sync(query: str, limit: int = 5) -> list[dict]:
         duration_ms = item.get("duration_ms", 0)
         total_sec = duration_ms // 1000
         duration_str = f"{total_sec // 60}:{total_sec % 60:02d}"
+        cover_url, thumb_url = _extract_spotify_covers(item)
         tracks.append({
             "id": track_id,
             "url": f"https://open.spotify.com/track/{track_id}",
             "title": title,
             "performer": artists or "Spotify",
             "duration": duration_str,
+            "duration_sec": total_sec,
+            "cover_url": cover_url,
+            "thumb_url": thumb_url,
         })
     return tracks
 
 
 def _inspect_spotify_metadata_sync(query: str) -> Optional[dict]:
     """
-    Быстрая разведка метаданных трека/альбома/плейлиста в Spotify ДО запуска скачивания spotdl.
-    Возвращает чистые поля performer, title, url и total_tracks для проверки блэклиста, лимита и кэша.
+    Быстрая разведка метаданных трека/альбома/плейлиста в Spotify ДО запуска скачивания.
+    Возвращает чистые поля performer, title, url, duration_sec, cover_url и total_tracks.
     """
     sp = get_spotify_client()
     try:
@@ -181,11 +203,15 @@ def _inspect_spotify_metadata_sync(query: str) -> Optional[dict]:
             if kind == "track":
                 item = sp.track(item_id)
                 artists = ", ".join(a.get("name", "") for a in item.get("artists", []) if a.get("name"))
+                cover_url, thumb_url = _extract_spotify_covers(item)
                 return {
                     "type": "track",
                     "title": item.get("name", "Без названия"),
                     "performer": artists or "Spotify",
                     "url": f"https://open.spotify.com/track/{item_id}",
+                    "duration_sec": int(item.get("duration_ms", 0) // 1000),
+                    "cover_url": cover_url,
+                    "thumb_url": thumb_url,
                     "total_tracks": 1,
                 }
             elif kind == "album":
@@ -234,6 +260,9 @@ def _inspect_spotify_metadata_sync(query: str) -> Optional[dict]:
                     "title": first["title"],
                     "performer": first["performer"],
                     "url": first["url"],
+                    "duration_sec": first.get("duration_sec", 0),
+                    "cover_url": first.get("cover_url"),
+                    "thumb_url": first.get("thumb_url"),
                     "total_tracks": 1,
                 }
     except Exception as e:
@@ -386,6 +415,13 @@ def get_subprocess_env() -> dict:
     return env
 
 
+def _get_cookies_path() -> Optional[str]:
+    if os.path.isfile(COOKIES_FILE):
+        return COOKIES_FILE
+    fallback = os.path.join(BASE_DIR, "cookies.txt")
+    return fallback if os.path.isfile(fallback) else None
+
+
 def build_spotdl_cmd(query: str, temp_dir: str) -> list[str]:
     """Формирует консольную команду spotdl с автопоиском бинарника."""
     venv_spotdl = os.path.join(os.path.dirname(sys.executable), "spotdl")
@@ -402,8 +438,8 @@ def build_spotdl_cmd(query: str, temp_dir: str) -> list[str]:
         '--client-secret', client_secret,
     ]
 
-    cookies_path = COOKIES_FILE if os.path.isfile(COOKIES_FILE) else os.path.join(BASE_DIR, "cookies.txt")
-    if os.path.isfile(cookies_path):
+    cookies_path = _get_cookies_path()
+    if cookies_path:
         cmd.extend(['--cookie-file', cookies_path])
 
     return cmd
@@ -532,6 +568,69 @@ async def process_and_send_download(
         with tempfile.TemporaryDirectory() as temp_dir:
             try:
                 start_time = time.time()
+
+                # Быстрый путь в памяти (ytmusicapi + yt-dlp в m4a без перекодировки ffmpeg) для одиночного трека
+                if meta and meta.get("type") == "track":
+                    try:
+                        fast_file, cover_bytes, thumb_bytes = await asyncio.wait_for(
+                            asyncio.gather(
+                                asyncio.to_thread(
+                                    download_track_fast_sync,
+                                    meta["title"],
+                                    meta["performer"],
+                                    temp_dir,
+                                    meta.get("duration_sec") or None,
+                                    _get_cookies_path(),
+                                ),
+                                download_cover_bytes(meta.get("cover_url")),
+                                download_cover_bytes(meta.get("thumb_url")),
+                            ),
+                            timeout=DOWNLOAD_TIMEOUT,
+                        )
+                    except asyncio.TimeoutError:
+                        fast_file, cover_bytes, thumb_bytes = None, None, None
+                        logger.warning("Fast download timed out for %r, falling back to spotdl", clean_query)
+                    except Exception as e:
+                        fast_file, cover_bytes, thumb_bytes = None, None, None
+                        logger.warning("Fast download error for %r: %s", clean_query, e)
+
+                    if fast_file and os.path.isfile(fast_file):
+                        download_time = round(time.time() - start_time, 2)
+                        thumb_data = thumb_bytes or cover_bytes
+                        thumbnail = (
+                            BufferedInputFile(thumb_data, filename="cover.jpg")
+                            if thumb_data else None
+                        )
+                        sent_msg = await target_message.answer_audio(
+                            audio=FSInputFile(fast_file),
+                            title=meta["title"],
+                            performer=meta["performer"],
+                            duration=meta.get("duration_sec") or None,
+                            thumbnail=thumbnail,
+                            caption=f"⏱ Загружено за {download_time} сек.",
+                        )
+                        file_id = sent_msg.audio.file_id
+                        title = sent_msg.audio.title or meta["title"]
+                        performer = sent_msg.audio.performer or meta["performer"]
+
+                        if cover_bytes or thumb_bytes:
+                            save_cover_to_cache(file_id, cover_bytes or thumb_bytes)
+
+                        async with aiosqlite.connect(DB_PATH) as conn:
+                            await conn.execute(
+                                "INSERT OR REPLACE INTO tracks (url, file_id, title, performer) VALUES (?, ?, ?, ?)",
+                                (cache_key, file_id, title, performer)
+                            )
+                            await conn.commit()
+
+                        markup = await get_playlist_keyboard(user_id, file_id)
+                        await target_message.bot.edit_message_reply_markup(
+                            chat_id=target_message.chat.id,
+                            message_id=sent_msg.message_id,
+                            reply_markup=markup
+                        )
+                        await status_msg.delete()
+                        return
 
                 cmd = build_spotdl_cmd(clean_query, temp_dir)
                 process = await asyncio.create_subprocess_exec(
@@ -842,11 +941,15 @@ def _discover_spotify_tracks_sync(
         if artists and find_blacklisted_artist(artists):
             return False
         seen_urls.add(url)
+        cover_url, thumb_url = _extract_spotify_covers(item)
         candidates.append({
             "id": track_id,
             "url": url,
             "title": item.get("name", "Без названия"),
             "performer": artists or "Spotify",
+            "duration_sec": int(item.get("duration_ms", 0) // 1000),
+            "cover_url": cover_url,
+            "thumb_url": thumb_url,
         })
         return True
 
@@ -1006,34 +1109,53 @@ async def _run_seed_job(
                     break
                 with tempfile.TemporaryDirectory() as temp_dir:
                     try:
-                        cmd = build_spotdl_cmd(url, temp_dir)
-                        proc = await asyncio.create_subprocess_exec(
-                            *cmd,
-                            stdout=asyncio.subprocess.PIPE,
-                            stderr=asyncio.subprocess.PIPE,
-                            env=get_subprocess_env(),
+                        # Сначала пробуем быстрый in-memory загрузчик (ytmusicapi + yt-dlp m4a)
+                        file_path, cover_bytes, thumb_bytes = await asyncio.wait_for(
+                            asyncio.gather(
+                                asyncio.to_thread(
+                                    download_track_fast_sync,
+                                    track["title"],
+                                    track["performer"],
+                                    temp_dir,
+                                    track.get("duration_sec") or None,
+                                    _get_cookies_path(),
+                                ),
+                                download_cover_bytes(track.get("cover_url")),
+                                download_cover_bytes(track.get("thumb_url")),
+                            ),
+                            timeout=DOWNLOAD_TIMEOUT,
                         )
-                        try:
-                            await asyncio.wait_for(proc.communicate(), timeout=DOWNLOAD_TIMEOUT)
-                        except asyncio.TimeoutError:
-                            proc.kill()
-                            await proc.wait()
-                            failed += 1
-                            _seed_state.update(processed=idx, failed=failed)
-                            await _update_status()
-                            continue
 
-                        files = [
-                            f for f in glob.glob(os.path.join(temp_dir, "*.*"))
-                            if not f.endswith(".part") and not f.endswith(".ytdl")
-                        ]
-                        if not files:
-                            failed += 1
-                            _seed_state.update(processed=idx, failed=failed)
-                            await _update_status()
-                            continue
+                        # Fallback на spotdl, если быстрый способ не нашёл трек
+                        if not file_path or not os.path.isfile(file_path):
+                            cmd = build_spotdl_cmd(url, temp_dir)
+                            proc = await asyncio.create_subprocess_exec(
+                                *cmd,
+                                stdout=asyncio.subprocess.PIPE,
+                                stderr=asyncio.subprocess.PIPE,
+                                env=get_subprocess_env(),
+                            )
+                            try:
+                                await asyncio.wait_for(proc.communicate(), timeout=DOWNLOAD_TIMEOUT)
+                            except asyncio.TimeoutError:
+                                proc.kill()
+                                await proc.wait()
+                                failed += 1
+                                _seed_state.update(processed=idx, failed=failed)
+                                await _update_status()
+                                continue
 
-                        file_path = files[0]
+                            files = [
+                                f for f in glob.glob(os.path.join(temp_dir, "*.*"))
+                                if not f.endswith(".part") and not f.endswith(".ytdl")
+                            ]
+                            if not files:
+                                failed += 1
+                                _seed_state.update(processed=idx, failed=failed)
+                                await _update_status()
+                                continue
+                            file_path = files[0]
+
                         f_title, f_perf = parse_filename_meta(file_path)
                         if find_blacklisted_artist(f_perf):
                             skipped += 1
@@ -1041,16 +1163,26 @@ async def _run_seed_job(
                             await _update_status()
                             continue
 
+                        thumb_data = thumb_bytes or cover_bytes
+                        thumbnail = (
+                            BufferedInputFile(thumb_data, filename="cover.jpg")
+                            if thumb_data else None
+                        )
                         sent_msg = await bot.send_audio(
                             chat_id=upload_chat_id,
                             audio=FSInputFile(file_path),
                             title=track["title"] or f_title,
                             performer=track["performer"] or f_perf,
+                            duration=track.get("duration_sec") or None,
+                            thumbnail=thumbnail,
                             disable_notification=True,
                         )
                         file_id = sent_msg.audio.file_id
                         title = sent_msg.audio.title or track["title"] or f_title
                         performer = sent_msg.audio.performer or track["performer"] or f_perf
+
+                        if cover_bytes or thumb_bytes:
+                            save_cover_to_cache(file_id, cover_bytes or thumb_bytes)
 
                         async with aiosqlite.connect(DB_PATH) as conn:
                             await conn.execute(
