@@ -891,8 +891,8 @@ def _discover_spotify_tracks_sync(
 
     if source:
         offset = 0
-        while len(candidates) < target_count and offset < 950:
-            res = sp.search(q=source, type="track", limit=50, offset=offset)
+        while len(candidates) < target_count and offset < 500:
+            res = sp.search(q=source, type="track", limit=10, offset=offset)
             items = res.get("tracks", {}).get("items", [])
             if not items:
                 break
@@ -900,26 +900,25 @@ def _discover_spotify_tracks_sync(
                 _try_add_track(item)
                 if len(candidates) >= target_count:
                     break
-            if len(items) < 50:
-                break
-            offset += 50
+            offset += len(items)
         return candidates
 
-    # Автоматический режим: случайно перемешиваем подборку запросов и смещений
+    # Автоматический режим: Spotify Dev Mode ограничивает /v1/search до limit=10
     queries = SEED_DISCOVERY_QUERIES.copy()
     random.shuffle(queries)
-    offsets = [0, 50, 100, 150, 200]
+    offsets = [0, 10, 20, 30, 40, 50, 70, 100]
+    last_error: Optional[Exception] = None
 
     for q in queries:
         if len(candidates) >= target_count:
             break
         q_offsets = offsets.copy()
         random.shuffle(q_offsets)
-        for off in q_offsets[:2]:
+        for off in q_offsets[:3]:
             if len(candidates) >= target_count:
                 break
             try:
-                res = sp.search(q=q, type="track", limit=50, offset=off)
+                res = sp.search(q=q, type="track", limit=10, offset=off)
                 items = res.get("tracks", {}).get("items", [])
                 random.shuffle(items)
                 for item in items:
@@ -927,8 +926,12 @@ def _discover_spotify_tracks_sync(
                     if len(candidates) >= target_count:
                         break
             except Exception as e:
+                last_error = e
                 logger.warning("Seed discovery search error for %r: %s", q, e)
                 break
+
+    if not candidates and last_error is not None:
+        raise last_error
 
     return candidates
 
