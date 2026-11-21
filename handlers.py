@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import os
+import random
 import re
 import shutil
 import sys
@@ -21,6 +22,7 @@ from aiogram.types import FSInputFile, WebAppInfo, InlineKeyboardMarkup, InlineK
 
 from config import (
     ADMIN_ID,
+    STORAGE_CHAT_ID,
     COOLDOWN_SECONDS,
     WEBAPP_URL,
     DB_PATH,
@@ -53,6 +55,37 @@ DOWNLOAD_SEMAPHORE = asyncio.Semaphore(2)
 
 _spotify_client: Optional[spotipy.Spotify] = None
 _blacklist_cache: tuple[Optional[float], Optional[re.Pattern]] = (None, None)
+
+_seed_task: Optional[asyncio.Task] = None
+_seed_stop_event: Optional[asyncio.Event] = None
+_seed_state: dict[str, Any] = {}
+
+SEED_DISCOVERY_QUERIES = [
+    "year:2026",
+    "year:2025",
+    "year:2024",
+    "year:2023",
+    "genre:pop",
+    "genre:hip-hop",
+    "genre:rock",
+    "genre:electronic",
+    "genre:dance",
+    "genre:indie",
+    "genre:r-n-b",
+    "genre:latin",
+    "genre:alt-rock",
+    "genre:house",
+    "genre:metal",
+    "genre:jazz",
+    "genre:soul",
+    "genre:punk",
+    "ukrainian hits",
+    "top hits",
+    "viral hits",
+    "club hits",
+    "workout hits",
+    "chill hits",
+]
 
 
 def parse_spotify_url(text: str) -> Optional[tuple[str, str]]:
@@ -778,6 +811,394 @@ async def btn_playlist(message: types.Message):
         )]
     ])
     await message.answer("🎧 Управляй своими сохраненными треками в удобном меню:", reply_markup=markup)
+
+
+def _discover_spotify_tracks_sync(
+    target_count: int,
+    source: Optional[str],
+    existing_urls: set[str],
+) -> list[dict]:
+    """
+    Собирает до target_count новых треков из Spotify API (которых ещё нет в БД и нет в блэклисте).
+    Поддерживает:
+      - ссылку на Spotify playlist/album,
+      - произвольный поисковый запрос/жанр,
+      - автоматический подбор популярных треков (если source не указан).
+    """
+    sp = get_spotify_client()
+    candidates: list[dict] = []
+    seen_urls: set[str] = set(existing_urls)
+
+    def _try_add_track(item: Optional[dict]) -> bool:
+        if not item:
+            return False
+        track_id = item.get("id")
+        if not track_id:
+            return False
+        url = f"https://open.spotify.com/track/{track_id}"
+        if url in seen_urls:
+            return False
+        artists = ", ".join(a.get("name", "") for a in item.get("artists", []) if a.get("name"))
+        if artists and find_blacklisted_artist(artists):
+            return False
+        seen_urls.add(url)
+        candidates.append({
+            "id": track_id,
+            "url": url,
+            "title": item.get("name", "Без названия"),
+            "performer": artists or "Spotify",
+        })
+        return True
+
+    parsed = parse_spotify_url(source) if source else None
+
+    if parsed and parsed[0] == "playlist":
+        offset = 0
+        while len(candidates) < target_count:
+            page = sp.playlist_items(
+                parsed[1],
+                limit=100,
+                offset=offset,
+                fields="items(track(id,name,artists(name))),next",
+            )
+            items = page.get("items", [])
+            if not items:
+                break
+            for entry in items:
+                _try_add_track((entry or {}).get("track"))
+                if len(candidates) >= target_count:
+                    break
+            if not page.get("next"):
+                break
+            offset += len(items)
+        return candidates
+
+    if parsed and parsed[0] == "album":
+        offset = 0
+        while len(candidates) < target_count:
+            page = sp.album_tracks(parsed[1], limit=50, offset=offset)
+            items = page.get("items", [])
+            if not items:
+                break
+            for item in items:
+                _try_add_track(item)
+                if len(candidates) >= target_count:
+                    break
+            if not page.get("next"):
+                break
+            offset += len(items)
+        return candidates
+
+    if source:
+        offset = 0
+        while len(candidates) < target_count and offset < 950:
+            res = sp.search(q=source, type="track", limit=50, offset=offset)
+            items = res.get("tracks", {}).get("items", [])
+            if not items:
+                break
+            for item in items:
+                _try_add_track(item)
+                if len(candidates) >= target_count:
+                    break
+            if len(items) < 50:
+                break
+            offset += 50
+        return candidates
+
+    # Автоматический режим: случайно перемешиваем подборку запросов и смещений
+    queries = SEED_DISCOVERY_QUERIES.copy()
+    random.shuffle(queries)
+    offsets = [0, 50, 100, 150, 200]
+
+    for q in queries:
+        if len(candidates) >= target_count:
+            break
+        q_offsets = offsets.copy()
+        random.shuffle(q_offsets)
+        for off in q_offsets[:2]:
+            if len(candidates) >= target_count:
+                break
+            try:
+                res = sp.search(q=q, type="track", limit=50, offset=off)
+                items = res.get("tracks", {}).get("items", [])
+                random.shuffle(items)
+                for item in items:
+                    _try_add_track(item)
+                    if len(candidates) >= target_count:
+                        break
+            except Exception as e:
+                logger.warning("Seed discovery search error for %r: %s", q, e)
+                break
+
+    return candidates
+
+
+async def _run_seed_job(
+    bot,
+    admin_chat_id: int,
+    status_msg: types.Message,
+    tracks: list[dict],
+    stop_event: asyncio.Event,
+):
+    global _seed_task, _seed_state
+    total = len(tracks)
+    saved = 0
+    skipped = 0
+    failed = 0
+    upload_chat_id = STORAGE_CHAT_ID or admin_chat_id
+    should_delete_msg = STORAGE_CHAT_ID is None
+
+    _seed_state = {
+        "total": total,
+        "processed": 0,
+        "saved": 0,
+        "skipped": 0,
+        "failed": 0,
+        "started_at": time.monotonic(),
+    }
+
+    async def _update_status(force: bool = False):
+        processed = _seed_state["processed"]
+        if not force and processed % 5 != 0 and processed != total:
+            return
+        elapsed = int(time.monotonic() - _seed_state["started_at"])
+        mins, secs = divmod(elapsed, 60)
+        try:
+            await status_msg.edit_text(
+                f"🌱 <b>Пополнение базы данных</b>\n\n"
+                f"Прогресс: <code>{processed}/{total}</code>\n"
+                f"✅ Сохранено: <code>{saved}</code>\n"
+                f"⏭ Пропущено (кэш/блэклист): <code>{skipped}</code>\n"
+                f"❌ Ошибок: <code>{failed}</code>\n"
+                f"⏱ Прошло: <code>{mins}м {secs}с</code>\n\n"
+                f"Остановить: /seed_stop",
+                parse_mode="HTML",
+            )
+        except Exception:
+            pass
+
+    try:
+        for idx, track in enumerate(tracks, 1):
+            if stop_event.is_set():
+                break
+
+            url = track["url"]
+            full_label = f"{track['performer']} - {track['title']}"
+
+            async with aiosqlite.connect(DB_PATH) as conn:
+                if await find_cached_track(conn, url, full_label):
+                    skipped += 1
+                    _seed_state.update(processed=idx, skipped=skipped)
+                    await _update_status()
+                    continue
+
+            if find_blacklisted_artist(track["performer"]):
+                skipped += 1
+                _seed_state.update(processed=idx, skipped=skipped)
+                await _update_status()
+                continue
+
+            async with DOWNLOAD_SEMAPHORE:
+                if stop_event.is_set():
+                    break
+                with tempfile.TemporaryDirectory() as temp_dir:
+                    try:
+                        cmd = build_spotdl_cmd(url, temp_dir)
+                        proc = await asyncio.create_subprocess_exec(
+                            *cmd,
+                            stdout=asyncio.subprocess.PIPE,
+                            stderr=asyncio.subprocess.PIPE,
+                            env=get_subprocess_env(),
+                        )
+                        try:
+                            await asyncio.wait_for(proc.communicate(), timeout=DOWNLOAD_TIMEOUT)
+                        except asyncio.TimeoutError:
+                            proc.kill()
+                            await proc.wait()
+                            failed += 1
+                            _seed_state.update(processed=idx, failed=failed)
+                            await _update_status()
+                            continue
+
+                        files = [
+                            f for f in glob.glob(os.path.join(temp_dir, "*.*"))
+                            if not f.endswith(".part") and not f.endswith(".ytdl")
+                        ]
+                        if not files:
+                            failed += 1
+                            _seed_state.update(processed=idx, failed=failed)
+                            await _update_status()
+                            continue
+
+                        file_path = files[0]
+                        f_title, f_perf = parse_filename_meta(file_path)
+                        if find_blacklisted_artist(f_perf):
+                            skipped += 1
+                            _seed_state.update(processed=idx, skipped=skipped)
+                            await _update_status()
+                            continue
+
+                        sent_msg = await bot.send_audio(
+                            chat_id=upload_chat_id,
+                            audio=FSInputFile(file_path),
+                            title=track["title"] or f_title,
+                            performer=track["performer"] or f_perf,
+                            disable_notification=True,
+                        )
+                        file_id = sent_msg.audio.file_id
+                        title = sent_msg.audio.title or track["title"] or f_title
+                        performer = sent_msg.audio.performer or track["performer"] or f_perf
+
+                        async with aiosqlite.connect(DB_PATH) as conn:
+                            await conn.execute(
+                                "INSERT OR REPLACE INTO tracks (url, file_id, title, performer) VALUES (?, ?, ?, ?)",
+                                (url, file_id, title, performer),
+                            )
+                            await conn.commit()
+
+                        if should_delete_msg:
+                            try:
+                                await bot.delete_message(chat_id=upload_chat_id, message_id=sent_msg.message_id)
+                            except Exception:
+                                pass
+
+                        saved += 1
+                    except asyncio.CancelledError:
+                        raise
+                    except Exception as e:
+                        logger.warning("Seed track error (%s): %s", url, e)
+                        failed += 1
+
+            _seed_state.update(processed=idx, saved=saved, skipped=skipped, failed=failed)
+            await _update_status()
+            await asyncio.sleep(2)
+
+        elapsed = int(time.monotonic() - _seed_state["started_at"])
+        mins, secs = divmod(elapsed, 60)
+        header = "🛑 <b>Пополнение базы остановлено</b>" if stop_event.is_set() else "✅ <b>Пополнение базы завершено!</b>"
+        await status_msg.edit_text(
+            f"{header}\n\n"
+            f"Обработано: <code>{_seed_state['processed']}/{total}</code>\n"
+            f"✅ Сохранено в БД: <code>{saved}</code>\n"
+            f"⏭ Пропущено: <code>{skipped}</code>\n"
+            f"❌ Ошибок: <code>{failed}</code>\n"
+            f"⏱ Затрачено: <code>{mins}м {secs}с</code>",
+            parse_mode="HTML",
+        )
+    except asyncio.CancelledError:
+        logger.info("Seed job cancelled")
+    except Exception as e:
+        logger.exception("Seed job failed unexpectedly: %s", e)
+        try:
+            await status_msg.edit_text(f"❌ Критическая ошибка пополнения: {e}")
+        except Exception:
+            pass
+    finally:
+        _seed_task = None
+        _seed_state = {}
+
+
+@router.message(Command("seed"))
+async def cmd_seed(message: types.Message):
+    """
+    Админ-команда для массового пополнения БД треками:
+      /seed — скачать 100 новых популярных треков
+      /seed 50 — скачать 50 новых популярных треков
+      /seed 100 https://open.spotify.com/playlist/... — до 100 треков из плейлиста/альбома
+      /seed 50 rock — до 50 треков по жанру/запросу
+    """
+    global _seed_task, _seed_stop_event
+    if message.from_user.id != ADMIN_ID:
+        return
+
+    if _seed_task is not None and not _seed_task.done():
+        await message.answer(
+            "⏳ Пополнение базы уже запущено!\n"
+            "Проверить прогресс: /seed_status\n"
+            "Остановить: /seed_stop"
+        )
+        return
+
+    parts = (message.text or "").split(maxsplit=2)
+    target_count = 100
+    source: Optional[str] = None
+
+    if len(parts) >= 2:
+        if parts[1].isdigit():
+            target_count = max(1, min(int(parts[1]), 500))
+            if len(parts) == 3:
+                source = await normalize_query(parts[2])
+        else:
+            raw_source = (message.text or "").split(maxsplit=1)[1]
+            source = await normalize_query(raw_source)
+
+    status_msg = await message.answer(
+        f"🔎 Подбираю до <code>{target_count}</code> новых треков из Spotify...",
+        parse_mode="HTML",
+    )
+
+    async with aiosqlite.connect(DB_PATH) as conn:
+        async with conn.execute("SELECT url FROM tracks") as cur:
+            existing_urls = {row[0] for row in await cur.fetchall() if row[0]}
+
+    try:
+        tracks = await asyncio.to_thread(
+            _discover_spotify_tracks_sync,
+            target_count,
+            source,
+            existing_urls,
+        )
+    except Exception as e:
+        logger.warning("Seed discovery failed: %s", e)
+        await status_msg.edit_text(f"❌ Не удалось получить треки из Spotify API: {e}")
+        return
+
+    if not tracks:
+        await status_msg.edit_text("ℹ️ Новых треков для скачивания не найдено (все уже есть в базе или в блэклисте).")
+        return
+
+    _seed_stop_event = asyncio.Event()
+    _seed_task = asyncio.create_task(
+        _run_seed_job(
+            bot=message.bot,
+            admin_chat_id=message.chat.id,
+            status_msg=status_msg,
+            tracks=tracks,
+            stop_event=_seed_stop_event,
+        )
+    )
+
+
+@router.message(Command("seed_stop"))
+async def cmd_seed_stop(message: types.Message):
+    if message.from_user.id != ADMIN_ID:
+        return
+    if _seed_task is None or _seed_task.done():
+        await message.answer("ℹ️ Сейчас пополнение базы не запущено.")
+        return
+    if _seed_stop_event:
+        _seed_stop_event.set()
+    await message.answer("🛑 Останавливаю пополнение после завершения текущего трека...")
+
+
+@router.message(Command("seed_status"))
+async def cmd_seed_status(message: types.Message):
+    if message.from_user.id != ADMIN_ID:
+        return
+    if _seed_task is None or _seed_task.done() or not _seed_state:
+        await message.answer("ℹ️ Сейчас пополнение базы не запущено.")
+        return
+    elapsed = int(time.monotonic() - _seed_state["started_at"])
+    mins, secs = divmod(elapsed, 60)
+    await message.answer(
+        f"🌱 <b>Статус пополнения:</b>\n\n"
+        f"Обработано: <code>{_seed_state['processed']}/{_seed_state['total']}</code>\n"
+        f"✅ Сохранено: <code>{_seed_state['saved']}</code>\n"
+        f"⏭ Пропущено: <code>{_seed_state['skipped']}</code>\n"
+        f"❌ Ошибок: <code>{_seed_state['failed']}</code>\n"
+        f"⏱ Прошло: <code>{mins}м {secs}с</code>",
+        parse_mode="HTML",
+    )
 
 
 @router.message(Command("preload"))
