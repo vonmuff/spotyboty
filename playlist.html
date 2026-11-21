@@ -228,25 +228,76 @@
             min-width: 34px;
         }
 
-        .seek-slider {
-            flex: 1;
-            -webkit-appearance: none;
-            appearance: none;
-            height: 4px;
-            border-radius: 2px;
-            background: rgba(255, 255, 255, 0.18);
-            outline: none;
-            cursor: pointer;
+        .time-label:last-child {
+            text-align: right;
         }
 
-        .seek-slider::-webkit-slider-thumb {
-            -webkit-appearance: none;
-            appearance: none;
+        .seek-wrapper {
+            position: relative;
+            flex: 1;
+            height: 24px;
+            display: flex;
+            align-items: center;
+            touch-action: none;
+        }
+
+        .seek-track {
+            position: relative;
+            width: 100%;
+            height: 5px;
+            border-radius: 999px;
+            background: rgba(255, 255, 255, 0.16);
+            overflow: hidden;
+            transition: height 0.15s ease;
+        }
+
+        .seek-wrapper:hover .seek-track,
+        .seek-wrapper.seeking .seek-track {
+            height: 7px;
+        }
+
+        .seek-fill {
+            position: absolute;
+            top: 0;
+            left: 0;
+            bottom: 0;
+            width: 0%;
+            border-radius: 999px;
+            background: linear-gradient(90deg, var(--accent), var(--accent-hover));
+            box-shadow: 0 0 8px rgba(29, 185, 84, 0.45);
+            will-change: width;
+        }
+
+        .seek-thumb {
+            position: absolute;
+            top: 50%;
+            left: 0%;
             width: 12px;
             height: 12px;
             border-radius: 50%;
-            background: var(--accent);
+            background: #ffffff;
+            box-shadow: 0 1px 6px rgba(0, 0, 0, 0.5);
+            transform: translate(-50%, -50%) scale(0.85);
+            pointer-events: none;
+            transition: transform 0.15s ease;
+            will-change: left;
+        }
+
+        .seek-wrapper:hover .seek-thumb,
+        .seek-wrapper.seeking .seek-thumb {
+            transform: translate(-50%, -50%) scale(1.15);
+        }
+
+        .seek-slider {
+            position: absolute;
+            inset: 0;
+            width: 100%;
+            height: 100%;
+            margin: 0;
+            opacity: 0;
             cursor: pointer;
+            -webkit-appearance: none;
+            appearance: none;
         }
 
         .player-main {
@@ -342,7 +393,13 @@
     <div id="playerBar" class="player-bar">
         <div class="progress-container">
             <span id="currentTime" class="time-label">0:00</span>
-            <input type="range" id="seekSlider" class="seek-slider" min="0" max="100" value="0" step="0.1">
+            <div id="seekWrapper" class="seek-wrapper">
+                <div class="seek-track">
+                    <div id="seekFill" class="seek-fill"></div>
+                </div>
+                <div id="seekThumb" class="seek-thumb"></div>
+                <input type="range" id="seekSlider" class="seek-slider" min="0" max="100" value="0" step="0.01">
+            </div>
             <span id="totalTime" class="time-label">0:00</span>
         </div>
         <div class="player-main">
@@ -405,9 +462,52 @@
         const prevBtn = document.getElementById('prevBtn');
         const nextBtn = document.getElementById('nextBtn');
         const repeatBtn = document.getElementById('repeatBtn');
+        const seekWrapper = document.getElementById('seekWrapper');
+        const seekFill = document.getElementById('seekFill');
+        const seekThumb = document.getElementById('seekThumb');
         const seekSlider = document.getElementById('seekSlider');
         const currentTimeEl = document.getElementById('currentTime');
         const totalTimeEl = document.getElementById('totalTime');
+
+        let progressRafId = null;
+
+        function setProgressVisual(current, duration) {
+            const pct = duration > 0 ? Math.max(0, Math.min(100, (current / duration) * 100)) : 0;
+            seekFill.style.width = `${pct}%`;
+            seekThumb.style.left = `${pct}%`;
+            currentTimeEl.textContent = formatTime(current);
+            if (duration > 0) {
+                seekSlider.max = duration;
+                if (!isSeeking) {
+                    seekSlider.value = current;
+                }
+                totalTimeEl.textContent = formatTime(duration);
+            } else {
+                totalTimeEl.textContent = '0:00';
+            }
+        }
+
+        function startProgressLoop() {
+            if (progressRafId !== null) return;
+            const tick = () => {
+                if (!isSeeking && !audio.paused && audio.duration) {
+                    setProgressVisual(audio.currentTime, audio.duration);
+                }
+                if (!audio.paused) {
+                    progressRafId = requestAnimationFrame(tick);
+                } else {
+                    progressRafId = null;
+                }
+            };
+            progressRafId = requestAnimationFrame(tick);
+        }
+
+        function stopProgressLoop() {
+            if (progressRafId !== null) {
+                cancelAnimationFrame(progressRafId);
+                progressRafId = null;
+            }
+        }
 
         function formatTime(sec) {
             if (!sec || isNaN(sec)) return "0:00";
@@ -499,6 +599,9 @@
             playerCover.style.visibility = 'visible';
             playerCover.src = track.cover_url;
 
+            seekSlider.value = 0;
+            setProgressVisual(0, 0);
+
             audio.src = track.stream_url;
             audio.play().catch(() => {});
             updatePlayButtons(true);
@@ -582,22 +685,33 @@
             repeatBtn.classList.toggle('active-mode', isRepeat);
         });
 
-        audio.addEventListener('play', () => updatePlayButtons(true));
-        audio.addEventListener('pause', () => updatePlayButtons(false));
-
-        audio.addEventListener('timeupdate', () => {
-            if (isSeeking) return;
-            currentTimeEl.textContent = formatTime(audio.currentTime);
-            if (audio.duration) {
-                seekSlider.max = audio.duration;
-                seekSlider.value = audio.currentTime;
-                totalTimeEl.textContent = formatTime(audio.duration);
+        audio.addEventListener('play', () => {
+            updatePlayButtons(true);
+            startProgressLoop();
+        });
+        audio.addEventListener('pause', () => {
+            updatePlayButtons(false);
+            stopProgressLoop();
+        });
+        audio.addEventListener('loadedmetadata', () => {
+            setProgressVisual(audio.currentTime || 0, audio.duration || 0);
+        });
+        audio.addEventListener('seeked', () => {
+            if (!isSeeking) {
+                setProgressVisual(audio.currentTime || 0, audio.duration || 0);
             }
         });
 
+        audio.addEventListener('timeupdate', () => {
+            if (isSeeking) return;
+            setProgressVisual(audio.currentTime || 0, audio.duration || 0);
+        });
+
         audio.addEventListener('ended', () => {
+            stopProgressLoop();
             if (isRepeat) {
                 audio.currentTime = 0;
+                setProgressVisual(0, audio.duration || 0);
                 audio.play();
             } else if (filteredTracks.length > 0) {
                 playNextTrack();
@@ -606,12 +720,17 @@
 
         seekSlider.addEventListener('input', () => {
             isSeeking = true;
-            currentTimeEl.textContent = formatTime(seekSlider.value);
+            seekWrapper.classList.add('seeking');
+            const val = parseFloat(seekSlider.value) || 0;
+            setProgressVisual(val, audio.duration || parseFloat(seekSlider.max) || 0);
         });
 
         seekSlider.addEventListener('change', () => {
-            audio.currentTime = seekSlider.value;
+            const val = parseFloat(seekSlider.value) || 0;
+            audio.currentTime = val;
             isSeeking = false;
+            seekWrapper.classList.remove('seeking');
+            setProgressVisual(val, audio.duration || 0);
         });
 
         searchInput.addEventListener('input', () => {
