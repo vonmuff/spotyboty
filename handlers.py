@@ -445,6 +445,15 @@ def build_spotdl_cmd(query: str, temp_dir: str) -> list[str]:
     return cmd
 
 
+def _render_progress_bar(percent: Optional[float], length: int = 10) -> str:
+    """Рисует аккуратную полосу прогресса вида ▰▰▰▰▰▰▱▱▱▱ 62%."""
+    if percent is None:
+        return "▱" * length
+    pct = max(0.0, min(100.0, percent))
+    filled = int(round((pct / 100.0) * length))
+    return f"{'▰' * filled}{'▱' * (length - filled)} {int(pct)}%"
+
+
 def parse_filename_meta(file_path: str):
     """Извлекает исполнителя и название из имени файла spotdl (Artist - Title.mp3)"""
     base = os.path.splitext(os.path.basename(file_path))[0]
@@ -571,6 +580,46 @@ async def process_and_send_download(
 
                 # Быстрый путь в памяти (ytmusicapi + yt-dlp в m4a без перекодировки ffmpeg) для одиночного трека
                 if meta and meta.get("type") == "track":
+                    loop = asyncio.get_running_loop()
+                    track_header = f"🎧 {meta['performer']} — {meta['title']}"
+                    progress_state = {
+                        "last_edit": 0.0,
+                        "last_text": "",
+                        "closed": False,
+                        "task": None,
+                    }
+
+                    async def _apply_progress_edit(text: str):
+                        if progress_state["closed"]:
+                            return
+                        try:
+                            await status_msg.edit_text(text)
+                        except Exception:
+                            pass
+
+                    def _on_progress(stage: str, pct: Optional[float] = None, force: bool = False):
+                        if progress_state["closed"]:
+                            return
+                        now = time.monotonic()
+                        if not force and (now - progress_state["last_edit"]) < 1.2:
+                            return
+                        bar = _render_progress_bar(pct)
+                        text = f"{track_header}\n{stage}\n{bar}"
+                        if text == progress_state["last_text"]:
+                            return
+                        progress_state["last_edit"] = now
+                        progress_state["last_text"] = text
+
+                        def _schedule():
+                            if progress_state["closed"]:
+                                return
+                            prev_task = progress_state["task"]
+                            if prev_task is not None and not prev_task.done():
+                                return
+                            progress_state["task"] = asyncio.create_task(_apply_progress_edit(text))
+
+                        loop.call_soon_threadsafe(_schedule)
+
                     try:
                         fast_file, cover_bytes, thumb_bytes = await asyncio.wait_for(
                             asyncio.gather(
@@ -581,6 +630,7 @@ async def process_and_send_download(
                                     temp_dir,
                                     meta.get("duration_sec") or None,
                                     _get_cookies_path(),
+                                    _on_progress,
                                 ),
                                 download_cover_bytes(meta.get("cover_url")),
                                 download_cover_bytes(meta.get("thumb_url")),
@@ -593,8 +643,20 @@ async def process_and_send_download(
                     except Exception as e:
                         fast_file, cover_bytes, thumb_bytes = None, None, None
                         logger.warning("Fast download error for %r: %s", clean_query, e)
+                    finally:
+                        progress_state["closed"] = True
+                        pending = progress_state["task"]
+                        if pending is not None and not pending.done():
+                            pending.cancel()
 
                     if fast_file and os.path.isfile(fast_file):
+                        try:
+                            await status_msg.edit_text(
+                                f"{track_header}\n📤 Отправляю в Telegram...\n{_render_progress_bar(98)}"
+                            )
+                        except Exception:
+                            pass
+
                         download_time = round(time.time() - start_time, 2)
                         thumb_data = thumb_bytes or cover_bytes
                         thumbnail = (
@@ -631,6 +693,11 @@ async def process_and_send_download(
                         )
                         await status_msg.delete()
                         return
+
+                    try:
+                        await status_msg.edit_text(f"{track_header}\n🔄 Пробую резервный загрузчик...")
+                    except Exception:
+                        pass
 
                 cmd = build_spotdl_cmd(clean_query, temp_dir)
                 process = await asyncio.create_subprocess_exec(
