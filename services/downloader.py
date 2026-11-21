@@ -10,7 +10,7 @@ import aiohttp
 import yt_dlp
 from ytmusicapi import YTMusic
 
-from config import COVERS_DIR
+from bot.config import COVERS_DIR
 
 logger = logging.getLogger(__name__)
 

@@ -1,6 +1,6 @@
 import aiosqlite
 from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton
-from config import DB_PATH
+from bot.config import DB_PATH
 
 main_keyboard = ReplyKeyboardMarkup(
     keyboard=[

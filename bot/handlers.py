@@ -27,7 +27,7 @@ from aiogram.types import (
     InlineKeyboardButton,
 )
 
-from config import (
+from bot.config import (
     ADMIN_ID,
     STORAGE_CHAT_ID,
     COOLDOWN_SECONDS,
@@ -35,24 +35,23 @@ from config import (
     DB_PATH,
     BASE_DIR,
     COOKIES_FILE,
+    BLACKLIST_FILE,
+    TOP_SONGS_FILE,
     DOWNLOAD_TIMEOUT,
     COLLECTION_DOWNLOAD_TIMEOUT,
     MAX_COLLECTION_TRACKS,
     SPOTIPY_CLIENT_ID,
     SPOTIPY_CLIENT_SECRET,
 )
-from database import log_request
-from downloader import download_track_fast_sync, download_cover_bytes, save_cover_to_cache
-from keyboards import main_keyboard, get_playlist_keyboard
+from bot.database import log_request
+from services.downloader import download_track_fast_sync, download_cover_bytes, save_cover_to_cache
+from bot.keyboards import main_keyboard, get_playlist_keyboard
 
 logger = logging.getLogger(__name__)
 
 router = Router()
 
 MENU_BUTTONS = {"🆘 Как пользоваться", "ℹ️ О боте", "🎵 Мой плейлист"}
-
-BLACKLIST_FILE = os.path.join(BASE_DIR, "blacklist.txt")
-TOP_SONGS_FILE = os.path.join(BASE_DIR, "top_songs.txt")
 
 SPOTIFY_URL_RE = re.compile(
     r"https?://open\.spotify\.com/(?:intl-[a-zA-Z0-9-]+/)?(track|album|playlist)/([A-Za-z0-9]+)"

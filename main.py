@@ -4,16 +4,16 @@ from aiohttp import web
 from aiogram import Bot, Dispatcher
 from aiogram.webhook.aiohttp_server import SimpleRequestHandler, setup_application
 
-from config import (
+from bot.config import (
     BOT_TOKEN,
     USE_WEBHOOK,
     WEBHOOK_PATH,
     WEBHOOK_URL,
     WEBHOOK_SECRET
 )
-from database import init_db
-from handlers import router
-from webapp import create_web_app
+from bot.database import init_db
+from bot.handlers import router
+from web.server import create_web_app
 
 logging.basicConfig(
     level=logging.INFO,

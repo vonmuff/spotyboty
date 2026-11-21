@@ -2,8 +2,10 @@ import os
 import hashlib
 from dotenv import load_dotenv
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DATA_DIR = os.getenv("DATA_DIR", BASE_DIR)
+LISTS_DIR = os.path.join(BASE_DIR, "lists")
+WEB_STATIC_DIR = os.path.join(BASE_DIR, "web", "static")
 os.makedirs(DATA_DIR, exist_ok=True)
 
 load_dotenv(os.path.join(BASE_DIR, ".env"))
@@ -25,6 +27,8 @@ DB_PATH = os.path.join(DATA_DIR, "tracks_cache.db")
 COVERS_DIR = os.path.join(DATA_DIR, "covers_cache")
 LOG_FILE = os.path.join(DATA_DIR, "bot_log.jsonl")
 COOKIES_FILE = os.path.join(DATA_DIR, "cookies.txt")
+BLACKLIST_FILE = os.path.join(LISTS_DIR, "blacklist.txt")
+TOP_SONGS_FILE = os.path.join(LISTS_DIR, "top_songs.txt")
 
 WEBAPP_URL = os.getenv("WEBAPP_URL", "https://spotyboty.mardariev.me").rstrip("/")
 

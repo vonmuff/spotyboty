@@ -10,5 +10,4 @@ services:
       - DATA_DIR=/app/data
     volumes:
       - ./data:/app/data
-      - ./blacklist.txt:/app/blacklist.txt:ro
-      - ./top_songs.txt:/app/top_songs.txt:ro
+      - ./lists:/app/lists:ro

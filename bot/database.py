@@ -5,7 +5,7 @@ from datetime import datetime
 from typing import Optional
 
 import aiosqlite
-from config import DB_PATH, LOG_FILE
+from bot.config import DB_PATH, LOG_FILE
 
 logger = logging.getLogger(__name__)
 

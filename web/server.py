@@ -14,7 +14,7 @@ from aiogram import Bot
 from aiogram.utils.web_app import safe_parse_webapp_init_data
 from mutagen.mp3 import MP3
 from mutagen.id3 import ID3, APIC
-from config import DB_PATH, BASE_DIR, COVERS_DIR, MEDIA_SIGN_KEY
+from bot.config import DB_PATH, WEB_STATIC_DIR, COVERS_DIR, MEDIA_SIGN_KEY
 
 logger = logging.getLogger(__name__)
 
@@ -190,7 +190,7 @@ async def healthcheck(request):
 @routes.get('/')
 async def index(request):
     return web.FileResponse(
-        os.path.join(BASE_DIR, 'playlist.html'),
+        os.path.join(WEB_STATIC_DIR, 'playlist.html'),
         headers={
             "Cache-Control": "no-cache, no-store, must-revalidate",
             "Pragma": "no-cache",
