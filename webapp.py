@@ -280,10 +280,23 @@ async def stream_audio(request):
                     _file_path_cache.pop(file_id, None)
                     continue
 
+                raw_ct = resp.headers.get('Content-Type', '')
+                if not raw_ct or raw_ct == 'application/octet-stream':
+                    ext = os.path.splitext(file_path)[1].lower()
+                    content_type = {
+                        '.m4a': 'audio/mp4',
+                        '.mp4': 'audio/mp4',
+                        '.ogg': 'audio/ogg',
+                        '.opus': 'audio/ogg',
+                        '.mp3': 'audio/mpeg',
+                    }.get(ext, 'audio/mpeg')
+                else:
+                    content_type = raw_ct
+
                 response = web.StreamResponse(
                     status=resp.status,
                     headers={
-                        'Content-Type': resp.headers.get('Content-Type', 'audio/mpeg'),
+                        'Content-Type': content_type,
                         'Accept-Ranges': 'bytes',
                     }
                 )
