@@ -65,17 +65,17 @@ def _get_authenticated_user_id(request: web.Request) -> Optional[int]:
         return None
 
 
-def sign_media_token(file_id: str, exp: Optional[int] = None) -> tuple[int, str]:
-    """Генерирует временную HMAC-подпись для безопасного доступа к /api/stream и /api/cover."""
+def sign_media_token(item_id: str, exp: Optional[int] = None) -> tuple[int, str]:
+    """Генерирует временную HMAC-подпись для безопасного доступа к /api/stream и /api/cover без раскрытия file_id."""
     if exp is None:
         exp = int(time.time()) + MEDIA_TOKEN_TTL
-    payload = f"{file_id}:{exp}".encode("utf-8")
+    payload = f"{item_id}:{exp}".encode("utf-8")
     sig = hmac.new(MEDIA_SIGN_KEY.encode("utf-8"), payload, hashlib.sha256).hexdigest()[:32]
     return exp, sig
 
 
-def verify_media_token(file_id: str, exp_str: Optional[str], sig: Optional[str]) -> bool:
-    if not file_id or not exp_str or not sig:
+def verify_media_token(item_id: Optional[str], exp_str: Optional[str], sig: Optional[str]) -> bool:
+    if not item_id or not exp_str or not sig:
         return False
     try:
         exp = int(exp_str)
@@ -83,8 +83,23 @@ def verify_media_token(file_id: str, exp_str: Optional[str], sig: Optional[str])
         return False
     if exp < int(time.time()):
         return False
-    _, expected_sig = sign_media_token(file_id, exp)
+    _, expected_sig = sign_media_token(item_id, exp)
     return hmac.compare_digest(sig, expected_sig)
+
+
+async def _resolve_file_id_from_request(request: web.Request) -> Optional[str]:
+    """Проверяет подписанный непрозрачный id и возвращает file_id из SQLite."""
+    item_id = request.query.get("id")
+    if not verify_media_token(item_id, request.query.get("exp"), request.query.get("sig")):
+        return None
+    try:
+        rowid = int(item_id)
+    except ValueError:
+        return None
+    async with aiosqlite.connect(DB_PATH) as conn:
+        async with conn.execute("SELECT file_id FROM playlist WHERE rowid = ?", (rowid,)) as cur:
+            row = await cur.fetchone()
+            return row[0] if row else None
 
 
 def get_cover_cache_path(file_id: str) -> str:
@@ -192,7 +207,8 @@ async def get_playlist(request):
         
     async with aiosqlite.connect(DB_PATH) as conn:
         async with conn.execute("""
-            SELECT p.file_id,
+            SELECT p.rowid,
+                   p.file_id,
                    COALESCE(p.title, t.title),
                    COALESCE(p.performer, t.performer),
                    t.url
@@ -204,7 +220,7 @@ async def get_playlist(request):
             rows = await cursor.fetchall()
 
     tracks = []
-    for file_id, title, performer, raw_url in rows:
+    for row_id, file_id, title, performer, raw_url in rows:
         # Если у трека еще нет нормального названия, запускаем фоновую задачу, не задерживая ответ
         if not title or "spotify.com" in title.lower() or title == "Трек из Spotify":
             schedule_metadata_resolution(file_id)
@@ -225,8 +241,9 @@ async def get_playlist(request):
         if not performer:
             performer = "Spotify"
 
-        exp, sig = sign_media_token(file_id)
-        signed_query = urlencode({"file_id": file_id, "exp": exp, "sig": sig})
+        item_id = str(row_id)
+        exp, sig = sign_media_token(item_id)
+        signed_query = urlencode({"id": item_id, "exp": exp, "sig": sig})
 
         tracks.append({
             "file_id": file_id,
@@ -260,8 +277,8 @@ async def delete_track(request):
 async def stream_audio(request):
     """Проксирует аудиопоток с поддержкой Range-запросов и кэшированием Telegram file_path"""
     global http_session
-    file_id = request.query.get('file_id')
-    if not verify_media_token(file_id, request.query.get('exp'), request.query.get('sig')):
+    file_id = await _resolve_file_id_from_request(request)
+    if not file_id:
         return web.Response(status=403, text="Forbidden")
     try:
         headers = {}
@@ -344,8 +361,8 @@ async def send_track(request):
 
 @routes.get('/api/cover')
 async def get_cover(request):
-    file_id = request.query.get('file_id')
-    if not verify_media_token(file_id, request.query.get('exp'), request.query.get('sig')):
+    file_id = await _resolve_file_id_from_request(request)
+    if not file_id:
         return web.Response(status=403, text="Forbidden")
         
     cover_path = get_cover_cache_path(file_id)
