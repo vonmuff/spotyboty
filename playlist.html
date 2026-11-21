@@ -598,7 +598,7 @@
             display: flex;
             align-items: center;
             justify-content: space-between;
-            margin-bottom: 22px;
+            margin-bottom: 8px;
         }
 
         .fp-ctrl-btn {
@@ -633,40 +633,6 @@
 
         .fp-ctrl-btn.play-pause:hover {
             background: var(--accent-hover);
-        }
-
-        .fp-actions {
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            gap: 12px;
-        }
-
-        .fp-action-btn {
-            flex: 1;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            gap: 8px;
-            padding: 11px 14px;
-            border-radius: 14px;
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            background: rgba(255, 255, 255, 0.08);
-            color: var(--text-primary);
-            font-size: 13px;
-            font-weight: 600;
-            cursor: pointer;
-            transition: background 0.2s, border-color 0.2s, color 0.2s;
-        }
-
-        .fp-action-btn:hover {
-            background: rgba(255, 255, 255, 0.14);
-        }
-
-        .fp-action-btn.danger:hover {
-            background: rgba(239, 68, 68, 0.18);
-            border-color: rgba(239, 68, 68, 0.4);
-            color: #fca5a5;
         }
     </style>
 </head>
@@ -783,17 +749,6 @@
                         <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="M7 7h10v3l4-4-4-4v3H5v6h2V7zm10 10H7v-3l-4 4 4 4v-3h12v-6h-2v4z"/></svg>
                     </button>
                 </div>
-
-                <div class="fp-actions">
-                    <button class="fp-action-btn" id="fpSendBtn">
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>
-                        В чат
-                    </button>
-                    <button class="fp-action-btn danger" id="fpDeleteBtn">
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg>
-                        Удалить
-                    </button>
-                </div>
             </div>
         </div>
     </div>
@@ -899,8 +854,6 @@
         const fpPauseIcon = document.getElementById('fpPauseIcon');
         const fpNextBtn = document.getElementById('fpNextBtn');
         const fpRepeatBtn = document.getElementById('fpRepeatBtn');
-        const fpSendBtn = document.getElementById('fpSendBtn');
-        const fpDeleteBtn = document.getElementById('fpDeleteBtn');
 
         let progressRafId = null;
 
@@ -1258,20 +1211,6 @@
         repeatBtn.addEventListener('click', toggleRepeat);
         fpRepeatBtn.addEventListener('click', toggleRepeat);
         fpShuffleBtn.addEventListener('click', toggleShuffle);
-
-        fpSendBtn.addEventListener('click', () => {
-            if (currentFileId) {
-                haptic('medium');
-                sendToChat(currentFileId);
-            }
-        });
-
-        fpDeleteBtn.addEventListener('click', () => {
-            if (currentFileId) {
-                haptic('medium');
-                deleteTrack(currentFileId);
-            }
-        });
 
         audio.addEventListener('play', () => {
             updatePlayButtons(true);
