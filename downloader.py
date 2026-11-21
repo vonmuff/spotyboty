@@ -112,43 +112,28 @@ def download_track_fast_sync(
     temp_dir: str,
     expected_duration: Optional[int] = None,
     cookies_path: Optional[str] = None,
-    progress_callback: Optional[Callable[[str, Optional[float]], None]] = None,
+    stage_callback: Optional[Callable[[str], None]] = None,
 ) -> Optional[str]:
     """
     Быстрое скачивание одиночного трека в памяти через ytmusicapi + yt-dlp (m4a без перекодировки).
     Возвращает путь к скачанному файлу или None (для fallback на spotdl).
     """
-    def _report(stage: str, pct: Optional[float] = None):
-        if progress_callback:
+    def _report(stage: str):
+        if stage_callback:
             try:
-                progress_callback(stage, pct)
+                stage_callback(stage)
             except Exception:
                 pass
 
-    _report("🔎 Ищу трек на YouTube Music...", 5.0)
+    _report("🔎 Ищу трек...")
     video_id = find_ytmusic_video_id(title, performer, expected_duration=expected_duration)
     if not video_id:
         return None
 
-    _report("⬇️ Подключаюсь к потоку...", 15.0)
+    _report("⬇️ Скачиваю аудио...")
     url = f"https://music.youtube.com/watch?v={video_id}"
     safe_base = _sanitize_filename(f"{performer} - {title}")
     outtmpl = os.path.join(temp_dir, f"{safe_base}.%(ext)s")
-
-    def _ydl_hook(d: dict):
-        status = d.get("status")
-        if status == "downloading":
-            total = d.get("total_bytes") or d.get("total_bytes_estimate") or 0
-            downloaded = d.get("downloaded_bytes") or 0
-            if total > 0:
-                # Масштабируем прогресс скачивания в диапазон 15%..90%
-                raw_pct = max(0.0, min(100.0, (downloaded / total) * 100.0))
-                scaled_pct = 15.0 + raw_pct * 0.75
-                _report("⬇️ Скачиваю аудио...", scaled_pct)
-            else:
-                _report("⬇️ Скачиваю аудио...", None)
-        elif status == "finished":
-            _report("⚙️ Подготавливаю файл...", 92.0)
 
     ydl_opts = {
         "format": "bestaudio[ext=m4a]/bestaudio[ext=mp3]/bestaudio/best",
@@ -160,7 +145,6 @@ def download_track_fast_sync(
         "concurrent_fragment_downloads": 4,
         "socket_timeout": 15,
         "retries": 2,
-        "progress_hooks": [_ydl_hook],
     }
     if cookies_path and os.path.isfile(cookies_path):
         ydl_opts["cookiefile"] = cookies_path
@@ -179,9 +163,6 @@ def download_track_fast_sync(
                         downloaded_path = full
                         break
             if os.path.isfile(downloaded_path):
-                ext = os.path.splitext(downloaded_path)[1].lower()
-                if ext not in (".m4a", ".mp3"):
-                    _report("⚙️ Конвертирую в M4A...", 94.0)
                 return _ensure_telegram_compatible_audio(downloaded_path, temp_dir)
     except Exception as e:
         logger.warning("Fast yt-dlp download failed for %r (%s): %s", f"{performer} - {title}", video_id, e)
