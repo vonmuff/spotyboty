@@ -45,7 +45,13 @@ from bot.config import (
     SPOTIPY_CLIENT_SECRET,
 )
 from bot.database import log_request
-from services.downloader import download_track_fast_sync, download_cover_bytes, save_cover_to_cache
+from services.downloader import (
+    download_track_fast_sync,
+    download_cover_bytes,
+    save_cover_to_cache,
+    inspect_direct_url_sync,
+    download_direct_url_sync,
+)
 from bot.keyboards import main_keyboard, get_playlist_keyboard
 
 logger = logging.getLogger(__name__)
@@ -58,6 +64,13 @@ SPOTIFY_URL_RE = re.compile(
     r"https?://open\.spotify\.com/(?:intl-[a-zA-Z0-9-]+/)?(track|album|playlist)/([A-Za-z0-9]+)"
 )
 SHORT_SPOTIFY_URL_RE = re.compile(r"https?://(?:spotify\.link|spoti\.fi)/\S+")
+YOUTUBE_URL_RE = re.compile(
+    r"https?://(?:(?:www|m|music)\.)?(?:youtube\.com/(?:watch\?[^\s]*v=|shorts/)|youtu\.be/)([A-Za-z0-9_-]{11})"
+)
+SOUNDCLOUD_URL_RE = re.compile(r"https?://(?:(?:www|m)\.)?soundcloud\.com/([^\s?#/]+/[^\s?#/]+)")
+SHORT_SOUNDCLOUD_URL_RE = re.compile(r"https?://on\.soundcloud\.com/\S+")
+
+MAX_DIRECT_AUDIO_DURATION = 20 * 60  # 20 минут (защита от стримов и лимита 50 МБ Telegram)
 
 DOWNLOAD_SEMAPHORE = asyncio.Semaphore(2)
 
@@ -109,8 +122,23 @@ def parse_spotify_url(text: str) -> Optional[tuple[str, str]]:
     return None
 
 
-async def resolve_spotify_short_url(url: str) -> str:
-    """Разворачивает короткие ссылки spotify.link / spoti.fi до канонического open.spotify.com URL."""
+def parse_external_media_url(text: str) -> Optional[tuple[str, str]]:
+    """Распознаёт и нормализует ссылки YouTube / YouTube Music / SoundCloud."""
+    yt_match = YOUTUBE_URL_RE.search(text)
+    if yt_match:
+        video_id = yt_match.group(1)
+        return "youtube", f"https://www.youtube.com/watch?v={video_id}"
+
+    sc_match = SOUNDCLOUD_URL_RE.search(text)
+    if sc_match:
+        path = sc_match.group(1).rstrip("/")
+        return "soundcloud", f"https://soundcloud.com/{path}"
+
+    return None
+
+
+async def resolve_short_url(url: str) -> str:
+    """Разворачивает короткие ссылки (spotify.link / spoti.fi / on.soundcloud.com) по редиректу."""
     try:
         timeout = aiohttp.ClientTimeout(total=8)
         async with aiohttp.ClientSession(timeout=timeout) as session:
@@ -122,19 +150,32 @@ async def resolve_spotify_short_url(url: str) -> str:
 
 
 async def normalize_query(raw_query: str) -> str:
-    """Нормализует Spotify-ссылки (короткие и локализованные /intl-xx/) в канонический вид."""
+    """Нормализует ссылки Spotify, YouTube / YT Music и SoundCloud в канонический вид."""
     query = raw_query.strip()
-    short_match = SHORT_SPOTIFY_URL_RE.search(query)
-    if short_match:
-        resolved = await resolve_spotify_short_url(short_match.group(0))
+
+    short_sp = SHORT_SPOTIFY_URL_RE.search(query)
+    if short_sp:
+        resolved = await resolve_short_url(short_sp.group(0))
         parsed = parse_spotify_url(resolved)
         if parsed:
             return f"https://open.spotify.com/{parsed[0]}/{parsed[1]}"
         return resolved.split("?")[0].strip()
 
+    short_sc = SHORT_SOUNDCLOUD_URL_RE.search(query)
+    if short_sc:
+        resolved = await resolve_short_url(short_sc.group(0))
+        ext_media = parse_external_media_url(resolved)
+        if ext_media:
+            return ext_media[1]
+        return resolved.split("?")[0].strip()
+
     parsed = parse_spotify_url(query)
     if parsed:
         return f"https://open.spotify.com/{parsed[0]}/{parsed[1]}"
+
+    ext_media = parse_external_media_url(query)
+    if ext_media:
+        return ext_media[1]
 
     if "open.spotify.com/" in query:
         return query.split("?")[0].strip()
@@ -839,8 +880,8 @@ async def process_and_send_download(
 async def cmd_start(message: types.Message):
     await message.answer(
         "Привет! Я музыкальный бот 🎧\n\n"
-        "Отправь мне ссылку на Spotify или напиши название песни.\n"
-        "⚠️ <b>Важно:</b> чтобы я нашел правильный трек, всегда пиши ИМЯ АВТОРА и название (например, <code>Queen - Bohemian Rhapsody</code>).",
+        "Отправь мне ссылку на <b>Spotify, YouTube, YouTube Music или SoundCloud</b> либо просто напиши название песни.\n"
+        "⚠️ <b>Совет:</b> для точного поиска по тексту пиши ИМЯ АВТОРА и название (например, <code>Queen - Bohemian Rhapsody</code>).",
         reply_markup=main_keyboard,
         parse_mode="HTML"
     )
@@ -848,12 +889,19 @@ async def cmd_start(message: types.Message):
 
 @router.message(F.text == "🆘 Как пользоваться")
 async def btn_help(message: types.Message):
-    await message.answer("Просто скинь мне название трека или ссылку на Spotify. При поиске по тексту я предложу 5 вариантов на выбор (треки с пометкой ⚡️ загружаются мгновенно из кэша).")
+    await message.answer(
+        "Просто скинь мне название трека или ссылку на Spotify, YouTube, YouTube Music или SoundCloud.\n"
+        "При поиске по тексту я предложу 5 вариантов с листанием (треки с пометкой ⚡️ загружаются мгновенно из кэша)."
+    )
 
 
 @router.message(F.text == "ℹ️ О боте")
 async def btn_info(message: types.Message):
-    await message.answer("Музыкальный Бот\n\nИщет треки по названию и ссылке Spotify, позволяет собирать свой плейлист прямо в Telegram. Блокирует поиск и скачивание треков авторов из россии.")
+    await message.answer(
+        "Музыкальный Бот\n\n"
+        "Ищет треки по названию и скачивает по ссылкам Spotify, YouTube, YouTube Music и SoundCloud. "
+        "Позволяет собирать свой плейлист прямо в Telegram. Блокирует поиск и скачивание треков авторов из россии."
+    )
 
 
 @router.message(Command("stats"))
@@ -1545,11 +1593,186 @@ async def cq_search_page(callback: types.CallbackQuery):
     await callback.answer()
 
 
+async def process_direct_url_download(
+    target_message: types.Message,
+    user_id: int,
+    source_name: str,
+    clean_url: str,
+):
+    """Скачивает аудио напрямую по ссылке YouTube / YouTube Music / SoundCloud с кэшем и блэклистом."""
+    async with aiosqlite.connect(DB_PATH) as conn:
+        cached_file_id = await find_cached_track(conn, clean_url, clean_url)
+
+    if cached_file_id:
+        markup = await get_playlist_keyboard(user_id, cached_file_id)
+        await target_message.answer_audio(
+            audio=cached_file_id,
+            caption="⚡️ Моментально из кэша",
+            reply_markup=markup,
+        )
+        return
+
+    label = "YouTube" if source_name == "youtube" else "SoundCloud"
+    status_msg = await target_message.answer(f"🔎 Получаю информацию с {label}...")
+
+    meta = await asyncio.to_thread(inspect_direct_url_sync, clean_url, _get_cookies_path())
+    if not meta:
+        await status_msg.edit_text(f"❌ Не удалось получить трек с {label}. Проверь ссылку или попробуй позже.")
+        return
+
+    if meta.get("is_live"):
+        await status_msg.edit_text("🚫 Прямые эфиры и стримы нельзя скачать.")
+        return
+
+    duration_sec = meta.get("duration_sec") or 0
+    if duration_sec > MAX_DIRECT_AUDIO_DURATION:
+        mins = duration_sec // 60
+        await status_msg.edit_text(
+            f"🚫 Трек слишком длинный ({mins} мин). Максимальная длительность: {MAX_DIRECT_AUDIO_DURATION // 60} мин."
+        )
+        return
+
+    title = meta["title"]
+    performer = meta["performer"]
+
+    bad_artist = find_blacklisted_artist(performer) or find_blacklisted_artist(title)
+    if bad_artist:
+        await log_request(
+            user_id=user_id,
+            request=clean_url,
+            cache_key=clean_url,
+            action="blocked_by_direct_url",
+            details={
+                "source": source_name,
+                "blocked_artist": bad_artist,
+                "performer": performer,
+                "title": title,
+            },
+        )
+        await status_msg.edit_text(f"🚫 Скачивание запрещено: исполнитель «{performer}» находится в черном списке.")
+        return
+
+    lookup_text = f"{performer} - {title}"
+    async with aiosqlite.connect(DB_PATH) as conn:
+        cached_file_id = await find_cached_track(conn, clean_url, lookup_text)
+
+    if cached_file_id:
+        markup = await get_playlist_keyboard(user_id, cached_file_id)
+        await target_message.answer_audio(
+            audio=cached_file_id,
+            caption="⚡️ Моментально из кэша",
+            reply_markup=markup,
+        )
+        try:
+            await status_msg.delete()
+        except Exception:
+            pass
+        return
+
+    track_header = f"🎧 {performer} — {title}"
+    if DOWNLOAD_SEMAPHORE.locked():
+        try:
+            await status_msg.edit_text(f"{track_header}\n⏳ Сервер занят другими загрузками, ваш запрос в очереди...")
+        except Exception:
+            pass
+    else:
+        try:
+            await status_msg.edit_text(f"{track_header}\n⬇️ Скачиваю аудио...")
+        except Exception:
+            pass
+
+    async with DOWNLOAD_SEMAPHORE:
+        try:
+            await status_msg.edit_text(f"{track_header}\n⬇️ Скачиваю аудио...")
+        except Exception:
+            pass
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            try:
+                start_time = time.time()
+                file_path, cover_bytes = await asyncio.wait_for(
+                    asyncio.gather(
+                        asyncio.to_thread(
+                            download_direct_url_sync,
+                            clean_url,
+                            temp_dir,
+                            title,
+                            performer,
+                            _get_cookies_path(),
+                        ),
+                        download_cover_bytes(meta.get("cover_url")),
+                    ),
+                    timeout=DOWNLOAD_TIMEOUT,
+                )
+            except asyncio.TimeoutError:
+                await status_msg.edit_text("⏱ Превышено время ожидания скачивания. Попробуй ещё раз позже.")
+                return
+            except Exception as e:
+                logger.exception("Direct URL download error (%s): %s", clean_url, e)
+                await status_msg.edit_text(f"❌ Ошибка загрузки: {e}")
+                return
+
+            if not file_path or not os.path.isfile(file_path):
+                await status_msg.edit_text(f"❌ Не удалось скачать аудио с {label} (возможно, файл превышает 48 МБ или ограничен).")
+                return
+
+            try:
+                await status_msg.edit_text(f"{track_header}\n📤 Отправляю в Telegram...")
+                await target_message.bot.send_chat_action(
+                    chat_id=target_message.chat.id,
+                    action=ChatAction.UPLOAD_DOCUMENT,
+                )
+            except Exception:
+                pass
+
+            download_time = round(time.time() - start_time, 2)
+            # Telegram thumbnail принимает JPEG (магические байты 0xFF 0xD8)
+            thumbnail = (
+                BufferedInputFile(cover_bytes, filename="cover.jpg")
+                if cover_bytes and cover_bytes[:2] == b"\xff\xd8" and len(cover_bytes) <= 200 * 1024
+                else None
+            )
+
+            sent_msg = await target_message.answer_audio(
+                audio=FSInputFile(file_path),
+                title=title,
+                performer=performer,
+                duration=duration_sec or None,
+                thumbnail=thumbnail,
+                caption=f"⏱ Загружено с {label} за {download_time} сек.",
+            )
+            file_id = sent_msg.audio.file_id
+            saved_title = sent_msg.audio.title or title
+            saved_perf = sent_msg.audio.performer or performer
+
+            if cover_bytes:
+                save_cover_to_cache(file_id, cover_bytes)
+
+            async with aiosqlite.connect(DB_PATH) as conn:
+                await conn.execute(
+                    "INSERT OR REPLACE INTO tracks (url, file_id, title, performer) VALUES (?, ?, ?, ?)",
+                    (clean_url, file_id, saved_title, saved_perf),
+                )
+                await conn.commit()
+
+            markup = await get_playlist_keyboard(user_id, file_id)
+            await target_message.bot.edit_message_reply_markup(
+                chat_id=target_message.chat.id,
+                message_id=sent_msg.message_id,
+                reply_markup=markup,
+            )
+            try:
+                await status_msg.delete()
+            except Exception:
+                pass
+
+
 @router.message(F.text)
 async def handle_music_request(message: types.Message):
     query = message.text.strip()
     clean_query = await normalize_query(query)
-    cache_key = clean_query if "spotify.com" in clean_query else clean_query.lower()
+    ext_media = parse_external_media_url(clean_query)
+    cache_key = clean_query if ("spotify.com" in clean_query or ext_media) else clean_query.lower()
 
     await log_request(
         user_id=message.from_user.id,
@@ -1559,6 +1782,16 @@ async def handle_music_request(message: types.Message):
         cache_key=cache_key,
         action="allowed",
     )
+
+    if ext_media:
+        source_name, canonical_url = ext_media
+        await process_direct_url_download(
+            target_message=message,
+            user_id=message.from_user.id,
+            source_name=source_name,
+            clean_url=canonical_url,
+        )
+        return
 
     if "spotify.com" not in clean_query:
         try:
