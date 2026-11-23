@@ -179,6 +179,56 @@
             border-color: rgba(29, 185, 84, 0.4);
         }
 
+        .track-item.entering {
+            opacity: 0;
+            animation: cardEnter 0.32s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+            animation-delay: calc(var(--enter-idx, 0) * 28ms);
+        }
+
+        .track-item.restoring {
+            animation: cardRestore 0.28s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+        }
+
+        .track-item.removing {
+            opacity: 0;
+            transform: translateX(-28px);
+            max-height: 0 !important;
+            padding-top: 0;
+            padding-bottom: 0;
+            margin-top: -8px;
+            border-width: 0;
+            overflow: hidden;
+            pointer-events: none;
+            transition:
+                opacity 0.2s ease,
+                transform 0.22s cubic-bezier(0.4, 0, 0.2, 1),
+                max-height 0.22s cubic-bezier(0.4, 0, 0.2, 1),
+                padding 0.22s ease,
+                margin 0.22s ease;
+        }
+
+        @keyframes cardEnter {
+            from {
+                opacity: 0;
+                transform: translateY(14px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        @keyframes cardRestore {
+            from {
+                opacity: 0;
+                transform: translateX(-18px) scale(0.97);
+            }
+            to {
+                opacity: 1;
+                transform: translateX(0) scale(1);
+            }
+        }
+
         .cover-wrapper {
             position: relative;
             width: 52px;
@@ -1253,13 +1303,14 @@
                 const data = await res.json();
                 allTracks = data.tracks || [];
                 filteredTracks = [...allTracks];
-                renderTracks();
+                renderTracks({ animateEntrance: true });
             } catch (err) {
                 trackListEl.innerHTML = `<div class="empty-state">Ошибка загрузки плейлиста</div>`;
             }
         }
 
-        function renderTracks() {
+        function renderTracks(options = {}) {
+            const { animateEntrance = false, highlightFileId = null } = options;
             trackCountEl.textContent = `${allTracks.length} треков`;
 
             if (filteredTracks.length === 0) {
@@ -1269,10 +1320,20 @@
 
             trackListEl.innerHTML = '';
             const isPaused = audio.paused;
-            filteredTracks.forEach((track) => {
+            filteredTracks.forEach((track, idx) => {
                 const isCurrent = currentFileId !== null && currentFileId === track.file_id;
                 const item = document.createElement('div');
-                item.className = `track-item ${isCurrent ? 'active' : ''}`;
+                const classes = ['track-item'];
+                if (isCurrent) classes.push('active');
+                if (animateEntrance && idx < 14) {
+                    classes.push('entering');
+                    item.style.setProperty('--enter-idx', idx);
+                }
+                if (highlightFileId && track.file_id === highlightFileId) {
+                    classes.push('restoring');
+                }
+                item.className = classes.join(' ');
+                item.dataset.fileId = track.file_id;
 
                 const coverUrl = track.cover_url;
                 const eqHtml = isCurrent
@@ -1679,17 +1740,17 @@
         bindSeekSlider(seekSlider, seekWrapper);
         bindSeekSlider(fpSeekSlider, fpSeekWrapper);
 
-        function applySearchFilter() {
+        function applySearchFilter(options = {}) {
             const q = searchInput.value.trim().toLowerCase();
             filteredTracks = allTracks.filter(t =>
                 (t.title && t.title.toLowerCase().includes(q)) ||
                 (t.performer && t.performer.toLowerCase().includes(q)) ||
                 (t.name && t.name.toLowerCase().includes(q))
             );
-            renderTracks();
+            renderTracks(options);
         }
 
-        searchInput.addEventListener('input', applySearchFilter);
+        searchInput.addEventListener('input', () => applySearchFilter());
 
         async function sendToChat(fileId) {
             try {
@@ -1736,20 +1797,16 @@
             const insertAt = Math.min(allIndex, allTracks.length);
             allTracks.splice(insertAt, 0, track);
             if (isShuffle) rebuildShuffleQueue();
-            applySearchFilter();
+            applySearchFilter({ highlightFileId: track.file_id });
         });
 
         window.addEventListener('pagehide', () => flushPendingDelete(true));
 
-        function deleteTrack(fileId) {
-            // Если есть предыдущее отложенное удаление — сразу подтверждаем его на сервере
-            flushPendingDelete(false);
-
+        function finalizeDeleteUI(fileId) {
             const allIndex = allTracks.findIndex(t => t.file_id === fileId);
             if (allIndex === -1) return;
             const track = allTracks[allIndex];
 
-            haptic('medium');
             const wasCurrent = currentFileId === fileId;
             allTracks.splice(allIndex, 1);
             filteredTracks = filteredTracks.filter(t => t.file_id !== fileId);
@@ -1779,6 +1836,28 @@
             }, 5000);
 
             pendingDelete = { track, allIndex, timer };
+        }
+
+        function deleteTrack(fileId) {
+            // Если есть предыдущее отложенное удаление — сразу подтверждаем его на сервере
+            flushPendingDelete(false);
+
+            const exists = allTracks.some(t => t.file_id === fileId);
+            if (!exists) return;
+
+            haptic('medium');
+            const itemEl = Array.from(trackListEl.children).find(
+                el => el.dataset && el.dataset.fileId === fileId
+            );
+            if (itemEl && !itemEl.classList.contains('removing')) {
+                itemEl.style.maxHeight = `${itemEl.offsetHeight}px`;
+                requestAnimationFrame(() => {
+                    itemEl.classList.add('removing');
+                });
+                setTimeout(() => finalizeDeleteUI(fileId), 220);
+            } else {
+                finalizeDeleteUI(fileId);
+            }
         }
 
         function escapeHtml(str) {
