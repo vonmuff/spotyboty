@@ -1,4 +1,5 @@
 import asyncio
+from difflib import SequenceMatcher
 import hashlib
 import logging
 import os
@@ -15,6 +16,34 @@ from bot.config import COVERS_DIR
 logger = logging.getLogger(__name__)
 
 _ytm_client: Optional[YTMusic] = None
+
+UNWANTED_VERSION_TAGS = (
+    "remix",
+    "slowed",
+    "sped up",
+    "speed up",
+    "nightcore",
+    "cover",
+    "live",
+    "karaoke",
+    "instrumental",
+    "acoustic",
+    "8d",
+    "reverb",
+    "bass boosted",
+    "mashup",
+    "edit",
+    "tribute",
+    "parody",
+    "concert",
+    "bootleg",
+    "lo-fi",
+    "lofi",
+    "chopped",
+    "screwed",
+)
+
+MIN_MATCH_SCORE = 45.0
 
 
 def get_ytmusic_client() -> YTMusic:
@@ -45,38 +74,180 @@ def _parse_ytm_duration(duration_str: Optional[str]) -> Optional[int]:
     return None
 
 
+def _norm_text(text: str) -> str:
+    return re.sub(r"\s+", " ", re.sub(r"[^\w\s]", " ", (text or "").lower())).strip()
+
+
+def _has_tag(text: str, tag: str) -> bool:
+    return bool(re.search(rf"(?<![a-zа-яё0-9]){re.escape(tag)}(?![a-zа-яё0-9])", (text or "").lower()))
+
+
+def _score_ytm_candidate(
+    item: dict,
+    title: str,
+    performer: str,
+    expected_duration: Optional[int] = None,
+    album: Optional[str] = None,
+    is_song_result: bool = True,
+) -> float:
+    """
+    Оценивает кандидата с YouTube Music по названию, исполнителю, альбому, длительности
+    и штрафует за нежелательные теги (remix/slowed/cover/live и т.п.), если их нет в оригинале Spotify.
+    """
+    cand_title = (item.get("title") or "").strip()
+    cand_artists_list = [a.get("name", "").strip() for a in (item.get("artists") or []) if a.get("name")]
+    cand_artists_str = ", ".join(cand_artists_list)
+    cand_album = ((item.get("album") or {}).get("name") or "").strip() if isinstance(item.get("album"), dict) else ""
+
+    score = 10.0 if is_song_result else 0.0
+
+    # 1. Схожесть названия (0..40)
+    norm_sp_title = _norm_text(title)
+    norm_cand_title = _norm_text(cand_title)
+    if norm_sp_title and norm_cand_title:
+        ratio = SequenceMatcher(None, norm_sp_title, norm_cand_title).ratio()
+        sp_words = set(norm_sp_title.split())
+        cand_words = set(norm_cand_title.split())
+        overlap = len(sp_words & cand_words) / max(1, len(sp_words))
+        score += 40.0 * max(ratio, overlap * 0.95)
+
+    # 2. Совпадение исполнителя (-35..+35)
+    sp_artists = [a.strip() for a in re.split(r"[,&/]|feat\.|ft\.", performer or "", flags=re.I) if a.strip()]
+    if sp_artists and sp_artists[0].lower() != "spotify":
+        cand_artist_haystack = _norm_text(f"{cand_artists_str} {cand_title}")
+        best_artist_sim = 0.0
+        for sp_a in sp_artists:
+            norm_a = _norm_text(sp_a)
+            if not norm_a:
+                continue
+            if norm_a in cand_artist_haystack:
+                best_artist_sim = 1.0
+                break
+            for ca in cand_artists_list:
+                sim = SequenceMatcher(None, norm_a, _norm_text(ca)).ratio()
+                if sim > best_artist_sim:
+                    best_artist_sim = sim
+        if best_artist_sim >= 0.8:
+            score += 35.0 * best_artist_sim
+        elif best_artist_sim >= 0.55:
+            score += 15.0 * best_artist_sim
+        else:
+            score -= 35.0
+
+    # 3. Бонус за совпадение альбома (+12)
+    if album and cand_album:
+        alb_sim = SequenceMatcher(None, _norm_text(album), _norm_text(cand_album)).ratio()
+        if alb_sim >= 0.75:
+            score += 12.0
+
+    # 4. Разница длительности (-40..+20)
+    if expected_duration and expected_duration > 0:
+        dur = item.get("duration_seconds") or _parse_ytm_duration(item.get("duration"))
+        if dur is not None:
+            diff = abs(int(dur) - expected_duration)
+            if diff <= 3:
+                score += 20.0
+            elif diff <= 8:
+                score += 12.0
+            elif diff <= 15:
+                score += 4.0
+            elif diff <= 25:
+                score -= 10.0
+            else:
+                score -= 40.0
+
+    # 5. Штраф за ремиксы / каверы / slowed / live, если их НЕТ в оригинале Spotify
+    sp_context = f"{title} {album or ''}"
+    for tag in UNWANTED_VERSION_TAGS:
+        in_sp = _has_tag(sp_context, tag)
+        in_cand = _has_tag(cand_title, tag)
+        if in_cand and not in_sp:
+            score -= 45.0
+        elif in_sp and in_cand:
+            score += 10.0
+        elif in_sp and not in_cand:
+            score -= 20.0
+
+    return score
+
+
 def find_ytmusic_video_id(
     title: str,
     performer: str,
     expected_duration: Optional[int] = None,
+    isrc: Optional[str] = None,
+    album: Optional[str] = None,
 ) -> Optional[str]:
-    """Ищет наиболее точный videoId трека на YouTube Music по названию, автору и длительности."""
+    """
+    Ищет наиболее точный videoId трека на YouTube Music:
+      1) Сначала по ISRC-коду (точная официальная студийная запись).
+      2) Затем текстовым поиском с умным скорингом и фильтром от ремиксов/каверов/лайвов.
+      3) Если ни один кандидат не прошёл порог уверенности — возвращает None (для fallback на spotdl).
+    """
     ytm = get_ytmusic_client()
+
+    # 1. Точный поиск по ISRC
+    if isrc:
+        try:
+            isrc_results = ytm.search(isrc, filter="songs", limit=3)
+            isrc_candidates = [r for r in isrc_results if r.get("videoId")]
+            if isrc_candidates:
+                best_isrc = max(
+                    isrc_candidates,
+                    key=lambda r: _score_ytm_candidate(
+                        r, title, performer, expected_duration=expected_duration, album=album, is_song_result=True
+                    ),
+                )
+                isrc_score = _score_ytm_candidate(
+                    best_isrc, title, performer, expected_duration=expected_duration, album=album, is_song_result=True
+                )
+                if isrc_score >= MIN_MATCH_SCORE:
+                    return best_isrc["videoId"]
+        except Exception as e:
+            logger.debug("YTMusic ISRC search failed for %s: %s", isrc, e)
+
+    # 2. Поиск по названию и исполнителю с ранжированием
     query = f"{performer} - {title}" if performer and performer.lower() != "spotify" else title
+    best_video_id: Optional[str] = None
+    best_score = float("-inf")
 
     for search_filter in ("songs", "videos"):
         try:
-            results = ytm.search(query, filter=search_filter, limit=5)
+            results = ytm.search(query, filter=search_filter, limit=8)
         except Exception as e:
             logger.warning("YTMusic search (%s) failed for %r: %s", search_filter, query, e)
             continue
 
-        candidates = [r for r in results if r.get("videoId")]
-        if not candidates:
-            continue
+        is_song = search_filter == "songs"
+        for item in results:
+            vid = item.get("videoId")
+            if not vid:
+                continue
+            sc = _score_ytm_candidate(
+                item,
+                title,
+                performer,
+                expected_duration=expected_duration,
+                album=album,
+                is_song_result=is_song,
+            )
+            if sc > best_score:
+                best_score = sc
+                best_video_id = vid
 
-        if expected_duration and expected_duration > 0:
-            def _score(item: dict) -> tuple[int, int]:
-                dur = item.get("duration_seconds") or _parse_ytm_duration(item.get("duration"))
-                if dur is None:
-                    return (1, 9999)
-                diff = abs(int(dur) - expected_duration)
-                return (0 if diff <= 15 else 1, diff)
+        # Если среди официальных songs уже есть уверенное совпадение — videos не ищем
+        if is_song and best_score >= 65.0:
+            break
 
-            candidates.sort(key=_score)
+    if best_video_id and best_score >= MIN_MATCH_SCORE:
+        return best_video_id
 
-        return candidates[0]["videoId"]
-
+    logger.info(
+        "No confident YTMusic match for %r (best_score=%.1f < %.1f), falling back to spotdl",
+        query,
+        best_score,
+        MIN_MATCH_SCORE,
+    )
     return None
 
 
@@ -113,6 +284,8 @@ def download_track_fast_sync(
     expected_duration: Optional[int] = None,
     cookies_path: Optional[str] = None,
     stage_callback: Optional[Callable[[str], None]] = None,
+    isrc: Optional[str] = None,
+    album: Optional[str] = None,
 ) -> Optional[str]:
     """
     Быстрое скачивание одиночного трека в памяти через ytmusicapi + yt-dlp (m4a без перекодировки).
@@ -126,7 +299,13 @@ def download_track_fast_sync(
                 pass
 
     _report("🔎 Ищу трек...")
-    video_id = find_ytmusic_video_id(title, performer, expected_duration=expected_duration)
+    video_id = find_ytmusic_video_id(
+        title,
+        performer,
+        expected_duration=expected_duration,
+        isrc=isrc,
+        album=album,
+    )
     if not video_id:
         return None
 

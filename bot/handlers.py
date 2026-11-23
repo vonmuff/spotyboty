@@ -235,6 +235,8 @@ def _search_spotify_sync(query: str, limit: int = 5, offset: int = 0) -> list[di
             "duration_sec": total_sec,
             "cover_url": cover_url,
             "thumb_url": thumb_url,
+            "isrc": (item.get("external_ids") or {}).get("isrc"),
+            "album": (item.get("album") or {}).get("name"),
         })
     return tracks
 
@@ -261,6 +263,8 @@ def _inspect_spotify_metadata_sync(query: str) -> Optional[dict]:
                     "duration_sec": int(item.get("duration_ms", 0) // 1000),
                     "cover_url": cover_url,
                     "thumb_url": thumb_url,
+                    "isrc": (item.get("external_ids") or {}).get("isrc"),
+                    "album": (item.get("album") or {}).get("name"),
                     "total_tracks": 1,
                 }
             elif kind == "album":
@@ -312,6 +316,8 @@ def _inspect_spotify_metadata_sync(query: str) -> Optional[dict]:
                     "duration_sec": first.get("duration_sec", 0),
                     "cover_url": first.get("cover_url"),
                     "thumb_url": first.get("thumb_url"),
+                    "isrc": first.get("isrc"),
+                    "album": first.get("album"),
                     "total_tracks": 1,
                 }
     except Exception as e:
@@ -680,6 +686,8 @@ async def process_and_send_download(
                                     meta.get("duration_sec") or None,
                                     _get_cookies_path(),
                                     _on_stage,
+                                    meta.get("isrc"),
+                                    meta.get("album"),
                                 ),
                                 download_cover_bytes(meta.get("cover_url")),
                                 download_cover_bytes(meta.get("thumb_url")),
@@ -1075,6 +1083,8 @@ def _discover_spotify_tracks_sync(
             "duration_sec": int(item.get("duration_ms", 0) // 1000),
             "cover_url": cover_url,
             "thumb_url": thumb_url,
+            "isrc": (item.get("external_ids") or {}).get("isrc"),
+            "album": (item.get("album") or {}).get("name"),
         })
         return True
 
@@ -1244,6 +1254,9 @@ async def _run_seed_job(
                                     temp_dir,
                                     track.get("duration_sec") or None,
                                     _get_cookies_path(),
+                                    None,
+                                    track.get("isrc"),
+                                    track.get("album"),
                                 ),
                                 download_cover_bytes(track.get("cover_url")),
                                 download_cover_bytes(track.get("thumb_url")),
