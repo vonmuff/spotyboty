@@ -44,6 +44,10 @@
             pointer-events: none;
         }
 
+        html {
+            scroll-behavior: smooth;
+        }
+
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
             background-color: var(--bg-main);
@@ -59,8 +63,55 @@
             z-index: 10;
             background: var(--header-bg);
             backdrop-filter: blur(14px);
+            -webkit-backdrop-filter: blur(14px);
             padding: 16px 16px 12px;
             border-bottom: 1px solid var(--border-subtle);
+            transition: padding 0.22s ease, box-shadow 0.25s ease, backdrop-filter 0.25s ease;
+        }
+
+        .header.scrolled {
+            padding: 11px 16px 10px;
+            backdrop-filter: blur(22px);
+            -webkit-backdrop-filter: blur(22px);
+            box-shadow: 0 8px 24px var(--bar-shadow);
+        }
+
+        .scroll-top-btn {
+            position: fixed;
+            right: 16px;
+            bottom: 22px;
+            z-index: 18;
+            width: 42px;
+            height: 42px;
+            border-radius: 50%;
+            border: 1px solid var(--border-subtle);
+            background: var(--player-bar-bg);
+            color: var(--text-primary);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            box-shadow: 0 6px 20px var(--bar-shadow);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            opacity: 0;
+            transform: translateY(14px) scale(0.88);
+            pointer-events: none;
+            transition: opacity 0.24s ease, transform 0.24s cubic-bezier(0.22, 1, 0.36, 1), bottom 0.25s ease, background 0.2s ease;
+        }
+
+        body.has-player .scroll-top-btn {
+            bottom: 138px;
+        }
+
+        .scroll-top-btn.visible {
+            opacity: 1;
+            transform: translateY(0) scale(1);
+            pointer-events: auto;
+        }
+
+        .scroll-top-btn:active {
+            transform: scale(0.92);
         }
 
         .header-top {
@@ -840,7 +891,7 @@
 </head>
 <body>
 
-    <div class="header">
+    <div id="headerEl" class="header">
         <div class="header-top">
             <h1>🎵 Мой плейлист</h1>
             <span class="track-counter" id="trackCount">0 треков</span>
@@ -955,6 +1006,10 @@
         </div>
     </div>
 
+    <button id="scrollTopBtn" class="scroll-top-btn" type="button" title="Наверх" aria-label="Наверх">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M7.41 15.41L12 10.83l4.59 4.58L18 14l-6-6-6 6z"/></svg>
+    </button>
+
     <div id="undoToast" class="undo-toast" role="status" aria-live="polite">
         <span id="undoToastText" class="undo-toast-text">Трек удалён</span>
         <button id="undoDeleteBtn" class="undo-toast-btn" type="button">Отменить</button>
@@ -1035,6 +1090,8 @@
         }
 
         const audio = document.getElementById('audioElement');
+        const headerEl = document.getElementById('headerEl');
+        const scrollTopBtn = document.getElementById('scrollTopBtn');
         const trackListEl = document.getElementById('trackList');
         const trackCountEl = document.getElementById('trackCount');
         const searchInput = document.getElementById('searchInput');
@@ -1332,7 +1389,32 @@
             }
         });
 
-        function playTrackById(fileId) {
+        function scrollToActiveTrack() {
+            if (isFullPlayerOpen) return;
+            const activeItem = trackListEl.querySelector('.track-item.active');
+            if (activeItem) {
+                activeItem.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+            }
+        }
+
+        let scrollTicking = false;
+        window.addEventListener('scroll', () => {
+            if (scrollTicking) return;
+            scrollTicking = true;
+            requestAnimationFrame(() => {
+                const y = window.scrollY || document.documentElement.scrollTop || 0;
+                headerEl.classList.toggle('scrolled', y > 12);
+                scrollTopBtn.classList.toggle('visible', y > 280);
+                scrollTicking = false;
+            });
+        }, { passive: true });
+
+        scrollTopBtn.addEventListener('click', () => {
+            haptic('light');
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        });
+
+        function playTrackById(fileId, shouldScroll = false) {
             const track = filteredTracks.find(t => t.file_id === fileId) || allTracks.find(t => t.file_id === fileId);
             if (!track) return;
             currentFileId = track.file_id;
@@ -1364,6 +1446,9 @@
             audio.play().catch(() => {});
             updatePlayButtons(true);
             renderTracks();
+            if (shouldScroll) {
+                scrollToActiveTrack();
+            }
 
             if ('mediaSession' in navigator) {
                 navigator.mediaSession.metadata = new MediaMetadata({
@@ -1383,7 +1468,7 @@
             }
             const idx = order.indexOf(currentFileId);
             const prevIdx = idx === -1 ? order.length - 1 : (idx - 1 + order.length) % order.length;
-            playTrackById(order[prevIdx]);
+            playTrackById(order[prevIdx], true);
         }
 
         function playNextTrack() {
@@ -1391,7 +1476,7 @@
             if (order.length === 0) return;
             const idx = order.indexOf(currentFileId);
             const nextIdx = idx === -1 ? 0 : (idx + 1) % order.length;
-            playTrackById(order[nextIdx]);
+            playTrackById(order[nextIdx], true);
         }
 
         function togglePlayPause() {
