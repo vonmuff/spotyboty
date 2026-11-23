@@ -1471,6 +1471,7 @@
             try {
                 tg.BackButton?.hide();
             } catch (e) {}
+            scrollToActiveTrack();
         }
 
         applyTelegramTheme();
@@ -1598,10 +1599,22 @@
 
         function scrollToActiveTrack() {
             if (isFullPlayerOpen) return;
-            const activeItem = trackListEl.querySelector('.track-item.active');
-            if (activeItem) {
-                activeItem.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-            }
+            requestAnimationFrame(() => {
+                const activeItem = trackListEl.querySelector('.track-item.active');
+                if (!activeItem) return;
+
+                const headerH = headerEl ? headerEl.offsetHeight : 0;
+                const playerH = playerBar.classList.contains('visible') ? playerBar.offsetHeight : 0;
+                const visibleHeight = Math.max(120, window.innerHeight - headerH - playerH);
+
+                const rect = activeItem.getBoundingClientRect();
+                const currentScrollY = window.scrollY || document.documentElement.scrollTop || 0;
+                const itemAbsTop = rect.top + currentScrollY;
+
+                // Центрируем активный трек в видимой области между шапкой и нижним плеером
+                const targetTop = Math.max(0, itemAbsTop - headerH - (visibleHeight - rect.height) / 2);
+                window.scrollTo({ top: targetTop, behavior: 'smooth' });
+            });
         }
 
         let scrollTicking = false;
