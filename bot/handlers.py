@@ -1,4 +1,5 @@
 import asyncio
+import hashlib
 import logging
 import os
 import random
@@ -35,6 +36,7 @@ from bot.config import (
     WEBAPP_URL,
     DB_PATH,
     BASE_DIR,
+    COVERS_DIR,
     COOKIES_FILE,
     BLACKLIST_FILE,
     TOP_SONGS_FILE,
@@ -401,19 +403,40 @@ def find_blacklisted_artist(artist_text: str) -> Optional[str]:
     return match.group(0) if match else None
 
 
-async def find_cached_track(conn: aiosqlite.Connection, cache_key: str, raw_query: str) -> Optional[str]:
+def _remove_cached_cover(file_id: str) -> None:
+    if not file_id:
+        return
+    safe_hash = hashlib.md5(file_id.encode("utf-8")).hexdigest()
+    cover_path = os.path.join(COVERS_DIR, f"{safe_hash}.jpg")
+    if os.path.isfile(cover_path):
+        try:
+            os.unlink(cover_path)
+        except OSError:
+            pass
+
+
+async def find_cached_track(
+    conn: aiosqlite.Connection,
+    cache_key: str,
+    raw_query: str,
+    exact_only: bool = False,
+) -> Optional[str]:
     """
     Ищет трек в локальной базе:
     1) Сначала по точному совпадению ключа (ссылка или текст запроса).
-    2) Если не найдено и запрос текстовый (минимум 2 слова) — разбивает запрос на слова
-       и ищет трек, где каждое слово присутствует в названии (title) или авторе (performer) в любом порядке.
+    2) Если exact_only=False и запрос текстовый (минимум 2 слова) — ищет по словам в title/performer.
+    Для прямых ссылок (Spotify/YouTube/SoundCloud) всегда используется только точное совпадение URL.
     """
     async with conn.execute("SELECT file_id FROM tracks WHERE url = ?", (cache_key,)) as cur:
         row = await cur.fetchone()
         if row:
             return row[0]
 
-    if "spotify.com" in raw_query.lower():
+    if exact_only or cache_key.startswith(("http://", "https://")):
+        return None
+
+    low_q = raw_query.lower()
+    if any(domain in low_q for domain in ("spotify.com", "youtube.com", "youtu.be", "soundcloud.com")):
         return None
 
     words = [w for w in re.findall(r"[a-zа-яёіїєґ0-9]+", raw_query.lower()) if len(w) >= 2]
@@ -553,9 +576,10 @@ async def process_and_send_download(
             extra_lookup_text = f"{meta['performer']} - {meta['title']}"
 
     lookup_text = extra_lookup_text or clean_query
+    is_url_key = cache_key.startswith(("http://", "https://"))
 
     async with aiosqlite.connect(DB_PATH) as conn:
-        cached_file_id = await find_cached_track(conn, cache_key, lookup_text)
+        cached_file_id = await find_cached_track(conn, cache_key, lookup_text, exact_only=is_url_key)
 
     if cached_file_id:
         markup = await get_playlist_keyboard(user_id, cached_file_id)
@@ -592,7 +616,7 @@ async def process_and_send_download(
     async with DOWNLOAD_SEMAPHORE:
         # Повторная проверка кэша после выхода из очереди
         async with aiosqlite.connect(DB_PATH) as conn:
-            cached_file_id = await find_cached_track(conn, cache_key, lookup_text)
+            cached_file_id = await find_cached_track(conn, cache_key, lookup_text, exact_only=is_url_key)
 
         if cached_file_id:
             markup = await get_playlist_keyboard(user_id, cached_file_id)
@@ -1334,6 +1358,139 @@ async def _run_seed_job(
         _seed_state = {}
 
 
+@router.message(Command("delcache"))
+async def cmd_delcache(message: types.Message):
+    """
+    Админ-команда для удаления битого трека из кэша:
+      - Ответом (Reply) на аудиосообщение: /delcache
+      - По ссылке или ключу: /delcache https://open.spotify.com/track/...
+    """
+    if message.from_user.id != ADMIN_ID:
+        return
+
+    removed_rows: list[tuple[str, str, Optional[str], Optional[str]]] = []
+
+    if message.reply_to_message and message.reply_to_message.audio:
+        target_fid = message.reply_to_message.audio.file_id
+        async with aiosqlite.connect(DB_PATH) as conn:
+            async with conn.execute(
+                "SELECT url, file_id, title, performer FROM tracks WHERE file_id = ?",
+                (target_fid,),
+            ) as cur:
+                removed_rows = await cur.fetchall()
+            await conn.execute("DELETE FROM tracks WHERE file_id = ?", (target_fid,))
+            await conn.commit()
+        _remove_cached_cover(target_fid)
+    else:
+        parts = (message.text or "").split(maxsplit=1)
+        if len(parts) < 2 or not parts[1].strip():
+            await message.answer(
+                "Использование:\n"
+                "• Ответь (Reply) командой <code>/delcache</code> на неправильное аудио\n"
+                "• Или напиши <code>/delcache &lt;ссылка&gt;</code>",
+                parse_mode="HTML",
+            )
+            return
+        raw_arg = parts[1].strip()
+        norm_arg = await normalize_query(raw_arg)
+        async with aiosqlite.connect(DB_PATH) as conn:
+            async with conn.execute(
+                "SELECT url, file_id, title, performer FROM tracks WHERE url = ? OR lower(url) = ?",
+                (norm_arg, norm_arg.lower()),
+            ) as cur:
+                removed_rows = await cur.fetchall()
+            await conn.execute(
+                "DELETE FROM tracks WHERE url = ? OR lower(url) = ?",
+                (norm_arg, norm_arg.lower()),
+            )
+            await conn.commit()
+        for _, fid, _, _ in removed_rows:
+            _remove_cached_cover(fid)
+
+    if not removed_rows:
+        await message.answer("ℹ️ Этот трек не найден в кэше (таблице <code>tracks</code>).", parse_mode="HTML")
+        return
+
+    urls_list = "\n".join(f"• <code>{r[0]}</code>" for r in removed_rows[:5])
+    await message.answer(
+        f"🗑 Удалено из кэша записей: <code>{len(removed_rows)}</code>\n{urls_list}",
+        parse_mode="HTML",
+    )
+
+
+@router.message(Command("recache"))
+async def cmd_recache(message: types.Message):
+    """
+    Админ-команда: удаляет трек из кэша и сразу перекачивает его заново.
+    Работает через Reply на аудио или /recache <ссылка>.
+    """
+    if message.from_user.id != ADMIN_ID:
+        return
+
+    target_url: Optional[str] = None
+    removed_fids: list[str] = []
+
+    if message.reply_to_message and message.reply_to_message.audio:
+        target_fid = message.reply_to_message.audio.file_id
+        async with aiosqlite.connect(DB_PATH) as conn:
+            async with conn.execute(
+                "SELECT url, file_id FROM tracks WHERE file_id = ?",
+                (target_fid,),
+            ) as cur:
+                rows = await cur.fetchall()
+            await conn.execute("DELETE FROM tracks WHERE file_id = ?", (target_fid,))
+            await conn.commit()
+        removed_fids = [target_fid] + [r[1] for r in rows if r[1]]
+        if rows:
+            target_url = rows[0][0]
+    else:
+        parts = (message.text or "").split(maxsplit=1)
+        if len(parts) >= 2 and parts[1].strip():
+            target_url = await normalize_query(parts[1].strip())
+            async with aiosqlite.connect(DB_PATH) as conn:
+                async with conn.execute(
+                    "SELECT file_id FROM tracks WHERE url = ? OR lower(url) = ?",
+                    (target_url, target_url.lower()),
+                ) as cur:
+                    removed_fids = [r[0] for r in await cur.fetchall() if r[0]]
+                await conn.execute(
+                    "DELETE FROM tracks WHERE url = ? OR lower(url) = ?",
+                    (target_url, target_url.lower()),
+                )
+                await conn.commit()
+
+    for fid in set(removed_fids):
+        _remove_cached_cover(fid)
+
+    if not target_url:
+        await message.answer(
+            "Использование:\n"
+            "• Ответь (Reply) командой <code>/recache</code> на аудио из кэша\n"
+            "• Или напиши <code>/recache &lt;ссылка&gt;</code>",
+            parse_mode="HTML",
+        )
+        return
+
+    ext_media = parse_external_media_url(target_url)
+    if ext_media:
+        source_name, canonical_url = ext_media
+        await process_direct_url_download(
+            target_message=message,
+            user_id=message.from_user.id,
+            source_name=source_name,
+            clean_url=canonical_url,
+        )
+    else:
+        cache_key = target_url if "spotify.com" in target_url else target_url.lower()
+        await process_and_send_download(
+            target_message=message,
+            user_id=message.from_user.id,
+            clean_query=target_url,
+            cache_key=cache_key,
+            status_text="🔄 Перекачиваю трек заново...",
+        )
+
+
 @router.message(Command("seed"))
 async def cmd_seed(message: types.Message):
     """
@@ -1527,7 +1684,7 @@ async def _build_search_markup(
     async with aiosqlite.connect(DB_PATH) as conn:
         for item in results:
             full_title = f"{item['performer']} - {item['title']}"
-            is_cached = await find_cached_track(conn, item["url"], full_title)
+            is_cached = await find_cached_track(conn, item["url"], full_title, exact_only=True)
             prefix = "⚡️ " if is_cached else "🎵 "
             btn_label = f"{prefix}{item['performer']} — {item['title']} ({item['duration']})"
             if len(btn_label) > 60:
@@ -1601,7 +1758,7 @@ async def process_direct_url_download(
 ):
     """Скачивает аудио напрямую по ссылке YouTube / YouTube Music / SoundCloud с кэшем и блэклистом."""
     async with aiosqlite.connect(DB_PATH) as conn:
-        cached_file_id = await find_cached_track(conn, clean_url, clean_url)
+        cached_file_id = await find_cached_track(conn, clean_url, clean_url, exact_only=True)
 
     if cached_file_id:
         markup = await get_playlist_keyboard(user_id, cached_file_id)
@@ -1650,23 +1807,6 @@ async def process_direct_url_download(
             },
         )
         await status_msg.edit_text(f"🚫 Скачивание запрещено: исполнитель «{performer}» находится в черном списке.")
-        return
-
-    lookup_text = f"{performer} - {title}"
-    async with aiosqlite.connect(DB_PATH) as conn:
-        cached_file_id = await find_cached_track(conn, clean_url, lookup_text)
-
-    if cached_file_id:
-        markup = await get_playlist_keyboard(user_id, cached_file_id)
-        await target_message.answer_audio(
-            audio=cached_file_id,
-            caption="⚡️ Моментально из кэша",
-            reply_markup=markup,
-        )
-        try:
-            await status_msg.delete()
-        except Exception:
-            pass
         return
 
     track_header = f"🎧 {performer} — {title}"
