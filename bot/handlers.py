@@ -3,6 +3,7 @@ import logging
 import os
 import random
 import re
+import secrets
 import shutil
 import sys
 import tempfile
@@ -62,6 +63,11 @@ DOWNLOAD_SEMAPHORE = asyncio.Semaphore(2)
 
 _spotify_client: Optional[spotipy.Spotify] = None
 _blacklist_cache: tuple[Optional[float], Optional[re.Pattern]] = (None, None)
+
+SEARCH_PAGE_SIZE = 5
+SEARCH_SESSION_TTL = 1800  # 30 минут
+SEARCH_SESSION_MAX = 500
+_search_sessions: dict[str, tuple[str, float]] = {}
 
 _seed_task: Optional[asyncio.Task] = None
 _seed_stop_event: Optional[asyncio.Event] = None
@@ -161,10 +167,10 @@ def _extract_spotify_covers(item: dict) -> tuple[Optional[str], Optional[str]]:
     return cover_url, thumb_url
 
 
-def _search_spotify_sync(query: str, limit: int = 5) -> list[dict]:
-    """Синхронный поиск топ-5 треков в Spotify API (вызывается через asyncio.to_thread)"""
+def _search_spotify_sync(query: str, limit: int = 5, offset: int = 0) -> list[dict]:
+    """Синхронный поиск треков в Spotify API с поддержкой пагинации (вызывается через asyncio.to_thread)"""
     sp = get_spotify_client()
-    results = sp.search(q=query, limit=limit, type="track")
+    results = sp.search(q=query, limit=limit, offset=offset, type="track")
     items = results.get("tracks", {}).get("items", [])
     tracks = []
     for item in items:
@@ -1440,6 +1446,105 @@ async def cmd_preload(message: types.Message):
     await message.answer("✅ Прогрев завершен!")
 
 
+def _create_search_session(query: str) -> str:
+    now = time.monotonic()
+    if len(_search_sessions) >= SEARCH_SESSION_MAX:
+        expired = [k for k, (_, exp) in _search_sessions.items() if exp <= now]
+        for k in expired:
+            _search_sessions.pop(k, None)
+        if len(_search_sessions) >= SEARCH_SESSION_MAX:
+            _search_sessions.pop(next(iter(_search_sessions)))
+    sid = secrets.token_hex(4)
+    _search_sessions[sid] = (query, now + SEARCH_SESSION_TTL)
+    return sid
+
+
+def _get_search_session(sid: str) -> Optional[str]:
+    entry = _search_sessions.get(sid)
+    if not entry:
+        return None
+    query, exp = entry
+    if exp <= time.monotonic():
+        _search_sessions.pop(sid, None)
+        return None
+    return query
+
+
+async def _build_search_markup(
+    results: list[dict],
+    sid: str,
+    offset: int,
+) -> InlineKeyboardMarkup:
+    buttons = []
+    async with aiosqlite.connect(DB_PATH) as conn:
+        for item in results:
+            full_title = f"{item['performer']} - {item['title']}"
+            is_cached = await find_cached_track(conn, item["url"], full_title)
+            prefix = "⚡️ " if is_cached else "🎵 "
+            btn_label = f"{prefix}{item['performer']} — {item['title']} ({item['duration']})"
+            if len(btn_label) > 60:
+                btn_label = btn_label[:57] + "..."
+
+            buttons.append([
+                InlineKeyboardButton(
+                    text=btn_label,
+                    callback_data=f"dl_sp:{item['id']}"
+                )
+            ])
+
+    nav_row = []
+    if offset > 0:
+        prev_offset = max(0, offset - SEARCH_PAGE_SIZE)
+        nav_row.append(InlineKeyboardButton(text="⬅️ Назад", callback_data=f"sp_page:{sid}:{prev_offset}"))
+    if len(results) == SEARCH_PAGE_SIZE and offset + SEARCH_PAGE_SIZE < 100:
+        next_offset = offset + SEARCH_PAGE_SIZE
+        nav_row.append(InlineKeyboardButton(text="Ещё 5 вариантов ➡️", callback_data=f"sp_page:{sid}:{next_offset}"))
+    if nav_row:
+        buttons.append(nav_row)
+
+    buttons.append([InlineKeyboardButton(text="✖️ Отмена", callback_data="cancel_search")])
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
+@router.callback_query(F.data.startswith("sp_page:"))
+async def cq_search_page(callback: types.CallbackQuery):
+    """Пагинация результатов поиска в Spotify (Ещё 5 вариантов / Назад)."""
+    parts = callback.data.split(":")
+    if len(parts) != 3 or not parts[2].isdigit():
+        await callback.answer("Некорректная страница")
+        return
+
+    sid = parts[1]
+    offset = int(parts[2])
+    query = _get_search_session(sid)
+    if not query:
+        await callback.answer("⏳ Поиск устарел — отправь запрос ещё раз.", show_alert=True)
+        return
+
+    try:
+        results = await asyncio.to_thread(_search_spotify_sync, query, SEARCH_PAGE_SIZE, offset)
+    except Exception as e:
+        logger.warning("Spotipy pagination error (offset=%s): %s", offset, e)
+        await callback.answer("❌ Ошибка поиска, попробуй чуть позже.", show_alert=True)
+        return
+
+    if not results:
+        await callback.answer("Больше результатов не найдено.")
+        return
+
+    page_num = offset // SEARCH_PAGE_SIZE + 1
+    markup = await _build_search_markup(results, sid, offset)
+    try:
+        await callback.message.edit_text(
+            f"🔎 Результаты по запросу «{query}» (стр. {page_num})\n"
+            f"Выбери нужный вариант (⚡️ — мгновенно из кэша):",
+            reply_markup=markup,
+        )
+    except Exception:
+        pass
+    await callback.answer()
+
+
 @router.message(F.text)
 async def handle_music_request(message: types.Message):
     query = message.text.strip()
@@ -1457,34 +1562,18 @@ async def handle_music_request(message: types.Message):
 
     if "spotify.com" not in clean_query:
         try:
-            results = await asyncio.to_thread(_search_spotify_sync, clean_query, 5)
+            results = await asyncio.to_thread(_search_spotify_sync, clean_query, SEARCH_PAGE_SIZE, 0)
         except Exception as e:
             logger.warning("Spotipy search error: %s", e)
             results = []
 
         if results:
-            buttons = []
-            async with aiosqlite.connect(DB_PATH) as conn:
-                for item in results:
-                    full_title = f"{item['performer']} - {item['title']}"
-                    is_cached = await find_cached_track(conn, item["url"], full_title)
-                    prefix = "⚡️ " if is_cached else "🎵 "
-                    btn_label = f"{prefix}{item['performer']} — {item['title']} ({item['duration']})"
-                    if len(btn_label) > 60:
-                        btn_label = btn_label[:57] + "..."
-
-                    buttons.append([
-                        InlineKeyboardButton(
-                            text=btn_label,
-                            callback_data=f"dl_sp:{item['id']}"
-                        )
-                    ])
-
-            buttons.append([InlineKeyboardButton(text="✖️ Отмена", callback_data="cancel_search")])
+            sid = _create_search_session(clean_query)
+            markup = await _build_search_markup(results, sid, 0)
             await message.answer(
                 f"🔎 Результаты по запросу «{query}»\n"
                 f"Выбери нужный вариант (⚡️ — мгновенно из кэша):",
-                reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons)
+                reply_markup=markup,
             )
             return
 
