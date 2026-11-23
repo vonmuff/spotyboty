@@ -591,6 +591,34 @@
             text-overflow: ellipsis;
         }
 
+        /* ===== Smooth Marquee for Long Titles ===== */
+        .marquee {
+            overflow: hidden;
+            white-space: nowrap;
+            text-overflow: clip;
+        }
+
+        .marquee-inner {
+            display: inline-block;
+            will-change: transform;
+        }
+
+        .marquee.scrolling {
+            -webkit-mask-image: linear-gradient(90deg, transparent 0, #000 10px, #000 calc(100% - 10px), transparent 100%);
+            mask-image: linear-gradient(90deg, transparent 0, #000 10px, #000 calc(100% - 10px), transparent 100%);
+        }
+
+        .marquee.scrolling .marquee-inner {
+            padding-right: 14px;
+            animation: marqueePingPong var(--marquee-duration, 10s) ease-in-out infinite;
+        }
+
+        @keyframes marqueePingPong {
+            0%, 16% { transform: translateX(0); }
+            56%, 72% { transform: translateX(var(--marquee-distance, 0px)); }
+            100% { transform: translateX(0); }
+        }
+
         .player-controls {
             display: flex;
             align-items: center;
@@ -919,7 +947,7 @@
             <div class="player-track" id="playerTrackTrigger" title="Открыть плеер">
                 <img id="playerCover" class="player-cover" src="" alt="" onerror="this.style.visibility='hidden'">
                 <div class="player-meta">
-                    <div id="playerTitle" class="player-title">Выберите трек</div>
+                    <div id="playerTitle" class="player-title marquee"><span class="marquee-inner">Выберите трек</span></div>
                     <div id="playerArtist" class="player-artist">—</div>
                 </div>
             </div>
@@ -966,8 +994,8 @@
 
             <div>
                 <div class="fp-meta">
-                    <div id="fpTitle" class="fp-title">Выберите трек</div>
-                    <div id="fpArtist" class="fp-artist">—</div>
+                    <div id="fpTitle" class="fp-title marquee"><span class="marquee-inner">Выберите трек</span></div>
+                    <div id="fpArtist" class="fp-artist marquee"><span class="marquee-inner">—</span></div>
                 </div>
 
                 <div class="fp-progress">
@@ -1288,6 +1316,46 @@
             });
         }
 
+        function setMarqueeText(el, text) {
+            let inner = el.querySelector('.marquee-inner');
+            if (!inner) {
+                inner = document.createElement('span');
+                inner.className = 'marquee-inner';
+                el.textContent = '';
+                el.appendChild(inner);
+            }
+            el.classList.remove('scrolling');
+            el.style.removeProperty('--marquee-distance');
+            el.style.removeProperty('--marquee-duration');
+            inner.textContent = text;
+            refreshMarquee(el);
+        }
+
+        function refreshMarquee(el) {
+            const inner = el.querySelector('.marquee-inner');
+            if (!inner) return;
+            requestAnimationFrame(() => {
+                const overflow = inner.scrollWidth - el.clientWidth;
+                if (overflow > 4) {
+                    const distance = -(overflow + 14);
+                    const duration = Math.max(6, Math.min(18, (overflow / 32) + 4.5));
+                    el.style.setProperty('--marquee-distance', `${distance}px`);
+                    el.style.setProperty('--marquee-duration', `${duration.toFixed(1)}s`);
+                    el.classList.add('scrolling');
+                } else {
+                    el.classList.remove('scrolling');
+                }
+            });
+        }
+
+        function refreshAllMarquees() {
+            refreshMarquee(playerTitle);
+            refreshMarquee(fpTitle);
+            refreshMarquee(fpArtist);
+        }
+
+        window.addEventListener('resize', refreshAllMarquees);
+
         function openFullPlayer() {
             if (!currentFileId) return;
             isFullPlayerOpen = true;
@@ -1296,6 +1364,7 @@
             fullPlayer.setAttribute('aria-hidden', 'false');
             document.body.classList.add('fp-open');
             applyTelegramTheme();
+            refreshAllMarquees();
             haptic('light');
             try {
                 tg.BackButton?.show();
@@ -1424,14 +1493,14 @@
 
             playerBar.classList.add('visible');
             document.body.classList.add('has-player');
-            playerTitle.textContent = titleText;
+            setMarqueeText(playerTitle, titleText);
             playerArtist.textContent = artistText;
 
             playerCover.style.visibility = 'visible';
             playerCover.src = track.cover_url;
 
-            fpTitle.textContent = titleText;
-            fpArtist.textContent = artistText;
+            setMarqueeText(fpTitle, titleText);
+            setMarqueeText(fpArtist, artistText);
             fpCover.style.display = 'block';
             fpCoverFallback.style.display = 'none';
             fpCover.src = track.cover_url;
