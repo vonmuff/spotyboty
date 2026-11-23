@@ -170,6 +170,117 @@ def download_track_fast_sync(
     return None
 
 
+def _clean_yt_meta(info: dict) -> tuple[str, str]:
+    """Извлекает чистые (title, performer) из словаря метаданных yt-dlp (YouTube / YT Music / SoundCloud)."""
+    raw_title = (info.get("track") or info.get("title") or "Без названия").strip()
+    raw_artist = (info.get("artist") or info.get("creator") or "").strip()
+
+    if not raw_artist and " - " in raw_title:
+        left, right = raw_title.split(" - ", 1)
+        if left.strip() and right.strip():
+            return right.strip(), left.strip()
+
+    uploader = (info.get("uploader") or info.get("channel") or "Audio").strip()
+    # YouTube Music auto-generated channels end with " - Topic"
+    if uploader.endswith(" - Topic"):
+        uploader = uploader[:-8].strip()
+
+    return raw_title, (raw_artist or uploader or "Audio")
+
+
+def inspect_direct_url_sync(
+    url: str,
+    cookies_path: Optional[str] = None,
+) -> Optional[dict]:
+    """Получает метаданные трека с YouTube / YouTube Music / SoundCloud без скачивания."""
+    ydl_opts = {
+        "quiet": True,
+        "no_warnings": True,
+        "noplaylist": True,
+        "skip_download": True,
+        "nocheckcertificate": True,
+        "socket_timeout": 15,
+    }
+    if cookies_path and os.path.isfile(cookies_path):
+        ydl_opts["cookiefile"] = cookies_path
+
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=False)
+            if not info:
+                return None
+            if info.get("_type") == "playlist":
+                entries = info.get("entries") or []
+                info = entries[0] if entries else None
+                if not info:
+                    return None
+            title, performer = _clean_yt_meta(info)
+            return {
+                "title": title,
+                "performer": performer,
+                "duration_sec": int(info.get("duration") or 0),
+                "is_live": bool(info.get("is_live")),
+                "cover_url": info.get("thumbnail"),
+                "webpage_url": info.get("webpage_url") or url,
+            }
+    except Exception as e:
+        logger.warning("Direct URL metadata inspect failed (%s): %s", url, e)
+        return None
+
+
+def download_direct_url_sync(
+    url: str,
+    temp_dir: str,
+    title: str,
+    performer: str,
+    cookies_path: Optional[str] = None,
+    stage_callback: Optional[Callable[[str], None]] = None,
+) -> Optional[str]:
+    """Скачивает аудио напрямую по ссылке YouTube / YouTube Music / SoundCloud через yt-dlp (m4a/mp3)."""
+    if stage_callback:
+        try:
+            stage_callback("⬇️ Скачиваю аудио...")
+        except Exception:
+            pass
+
+    safe_base = _sanitize_filename(f"{performer} - {title}")
+    outtmpl = os.path.join(temp_dir, f"{safe_base}.%(ext)s")
+
+    ydl_opts = {
+        "format": "bestaudio[ext=m4a]/bestaudio[ext=mp3]/bestaudio/best",
+        "outtmpl": outtmpl,
+        "quiet": True,
+        "no_warnings": True,
+        "noplaylist": True,
+        "nocheckcertificate": True,
+        "concurrent_fragment_downloads": 4,
+        "socket_timeout": 15,
+        "retries": 2,
+        "max_filesize": 48 * 1024 * 1024,
+    }
+    if cookies_path and os.path.isfile(cookies_path):
+        ydl_opts["cookiefile"] = cookies_path
+
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=True)
+            if not info:
+                return None
+            downloaded_path = ydl.prepare_filename(info)
+            if not os.path.isfile(downloaded_path):
+                for fname in os.listdir(temp_dir):
+                    full = os.path.join(temp_dir, fname)
+                    if os.path.isfile(full) and not fname.endswith((".part", ".ytdl", ".jpg")):
+                        downloaded_path = full
+                        break
+            if os.path.isfile(downloaded_path):
+                return _ensure_telegram_compatible_audio(downloaded_path, temp_dir)
+    except Exception as e:
+        logger.warning("Direct URL download failed (%s): %s", url, e)
+
+    return None
+
+
 async def download_cover_bytes(cover_url: Optional[str]) -> Optional[bytes]:
     """Асинхронно скачивает обложку трека из Spotify CDN (параллельно со скачиванием аудио)."""
     if not cover_url:
