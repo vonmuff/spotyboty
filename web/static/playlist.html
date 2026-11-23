@@ -153,6 +153,180 @@
             user-select: none;
         }
 
+        /* ===== Animated Equalizer on Active Track ===== */
+        .eq-overlay {
+            position: absolute;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.52);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 3px;
+            pointer-events: none;
+        }
+
+        .eq-overlay span {
+            width: 3px;
+            height: 16px;
+            border-radius: 2px;
+            background: var(--accent);
+            transform-origin: bottom;
+            animation: eqBounce 0.7s ease-in-out infinite alternate;
+        }
+
+        .eq-overlay span:nth-child(1) {
+            animation-duration: 0.62s;
+            animation-delay: 0s;
+        }
+
+        .eq-overlay span:nth-child(2) {
+            animation-duration: 0.48s;
+            animation-delay: -0.25s;
+        }
+
+        .eq-overlay span:nth-child(3) {
+            animation-duration: 0.74s;
+            animation-delay: -0.45s;
+        }
+
+        .eq-overlay.paused span {
+            animation-play-state: paused;
+            transform: scaleY(0.32);
+        }
+
+        @keyframes eqBounce {
+            0% { transform: scaleY(0.25); }
+            100% { transform: scaleY(1); }
+        }
+
+        /* ===== Skeleton Loading ===== */
+        .skeleton-item {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 10px;
+            background: var(--bg-card);
+            border-radius: 14px;
+            border: 1px solid var(--border-subtle);
+            pointer-events: none;
+        }
+
+        .skeleton-shimmer {
+            background: linear-gradient(
+                90deg,
+                var(--surface-chip) 25%,
+                var(--surface-chip-hover) 50%,
+                var(--surface-chip) 75%
+            );
+            background-size: 200% 100%;
+            animation: skeletonWave 1.3s ease-in-out infinite;
+        }
+
+        .skeleton-cover {
+            width: 52px;
+            height: 52px;
+            border-radius: 10px;
+            flex-shrink: 0;
+        }
+
+        .skeleton-meta {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .skeleton-line {
+            height: 12px;
+            border-radius: 6px;
+        }
+
+        .skeleton-line.title {
+            width: 66%;
+            height: 14px;
+        }
+
+        .skeleton-line.artist {
+            width: 42%;
+        }
+
+        .skeleton-actions {
+            display: flex;
+            gap: 6px;
+        }
+
+        .skeleton-circle {
+            width: 34px;
+            height: 34px;
+            border-radius: 50%;
+        }
+
+        @keyframes skeletonWave {
+            0% { background-position: 200% 0; }
+            100% { background-position: -200% 0; }
+        }
+
+        /* ===== Undo Delete Toast ===== */
+        .undo-toast {
+            position: fixed;
+            left: 16px;
+            right: 16px;
+            bottom: 20px;
+            max-width: 440px;
+            margin: 0 auto;
+            z-index: 40;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            padding: 12px 16px;
+            border-radius: 14px;
+            background: rgba(24, 24, 31, 0.96);
+            color: #ffffff;
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
+            backdrop-filter: blur(14px);
+            transform: translateY(140%);
+            opacity: 0;
+            pointer-events: none;
+            transition: transform 0.28s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.22s ease, bottom 0.25s ease;
+        }
+
+        body.has-player .undo-toast {
+            bottom: 136px;
+        }
+
+        .undo-toast.visible {
+            transform: translateY(0);
+            opacity: 1;
+            pointer-events: auto;
+        }
+
+        .undo-toast-text {
+            font-size: 14px;
+            font-weight: 500;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .undo-toast-btn {
+            background: rgba(29, 185, 84, 0.18);
+            border: none;
+            color: var(--accent-hover);
+            font-size: 13px;
+            font-weight: 700;
+            padding: 6px 12px;
+            border-radius: 99px;
+            cursor: pointer;
+            flex-shrink: 0;
+            transition: background 0.15s ease;
+        }
+
+        .undo-toast-btn:active {
+            background: rgba(29, 185, 84, 0.32);
+        }
+
         .track-info {
             flex: 1;
             min-width: 0;
@@ -781,6 +955,11 @@
         </div>
     </div>
 
+    <div id="undoToast" class="undo-toast" role="status" aria-live="polite">
+        <span id="undoToastText" class="undo-toast-text">Трек удалён</span>
+        <button id="undoDeleteBtn" class="undo-toast-btn" type="button">Отменить</button>
+    </div>
+
     <audio id="audioElement" preload="metadata"></audio>
 
     <script>
@@ -898,8 +1077,12 @@
         const fpPauseIcon = document.getElementById('fpPauseIcon');
         const fpNextBtn = document.getElementById('fpNextBtn');
         const fpRepeatBtn = document.getElementById('fpRepeatBtn');
+        const undoToast = document.getElementById('undoToast');
+        const undoToastText = document.getElementById('undoToastText');
+        const undoDeleteBtn = document.getElementById('undoDeleteBtn');
 
         let progressRafId = null;
+        let pendingDelete = null;
 
         function setProgressVisual(current, duration) {
             const pct = duration > 0 ? Math.max(0, Math.min(100, (current / duration) * 100)) : 0;
@@ -955,11 +1138,28 @@
             return `${m}:${s < 10 ? '0' : ''}${s}`;
         }
 
+        function renderSkeleton(count = 6) {
+            trackListEl.innerHTML = Array.from({ length: count }, () => `
+                <div class="skeleton-item">
+                    <div class="skeleton-cover skeleton-shimmer"></div>
+                    <div class="skeleton-meta">
+                        <div class="skeleton-line title skeleton-shimmer"></div>
+                        <div class="skeleton-line artist skeleton-shimmer"></div>
+                    </div>
+                    <div class="skeleton-actions">
+                        <div class="skeleton-circle skeleton-shimmer"></div>
+                        <div class="skeleton-circle skeleton-shimmer"></div>
+                    </div>
+                </div>
+            `).join('');
+        }
+
         async function loadPlaylist() {
             if (!initData) {
                 trackListEl.innerHTML = `<div class="empty-state">Откройте плейлист через кнопку в Telegram-боте.</div>`;
                 return;
             }
+            renderSkeleton(6);
             try {
                 const res = await fetch('/api/playlist', { headers: authHeaders() });
                 if (!res.ok) {
@@ -983,18 +1183,23 @@
             }
 
             trackListEl.innerHTML = '';
+            const isPaused = audio.paused;
             filteredTracks.forEach((track) => {
                 const isCurrent = currentFileId !== null && currentFileId === track.file_id;
                 const item = document.createElement('div');
                 item.className = `track-item ${isCurrent ? 'active' : ''}`;
 
                 const coverUrl = track.cover_url;
+                const eqHtml = isCurrent
+                    ? `<div class="eq-overlay ${isPaused ? 'paused' : ''}"><span></span><span></span><span></span></div>`
+                    : '';
 
                 item.innerHTML = `
                     <div class="cover-wrapper">
                         <img src="${coverUrl}" alt="" loading="lazy"
                              onerror="this.style.display='none'; this.nextElementSibling.style.display='block';">
                         <span class="cover-fallback" style="display:none;">🎵</span>
+                        ${eqHtml}
                     </div>
                     <div class="track-info">
                         <div class="track-title">${escapeHtml(track.title || track.name)}</div>
@@ -1136,6 +1341,7 @@
             const artistText = track.performer || 'Spotify';
 
             playerBar.classList.add('visible');
+            document.body.classList.add('has-player');
             playerTitle.textContent = titleText;
             playerArtist.textContent = artistText;
 
@@ -1223,6 +1429,9 @@
             fpPlayIcon.style.display = playing ? 'none' : 'block';
             fpPauseIcon.style.display = playing ? 'block' : 'none';
             fpArtBox.classList.toggle('playing', playing);
+            document.querySelectorAll('.eq-overlay').forEach(el => {
+                el.classList.toggle('paused', !playing);
+            });
             if ('mediaSession' in navigator) {
                 navigator.mediaSession.playbackState = playing ? 'playing' : 'paused';
             }
@@ -1316,7 +1525,7 @@
         bindSeekSlider(seekSlider, seekWrapper);
         bindSeekSlider(fpSeekSlider, fpSeekWrapper);
 
-        searchInput.addEventListener('input', () => {
+        function applySearchFilter() {
             const q = searchInput.value.trim().toLowerCase();
             filteredTracks = allTracks.filter(t =>
                 (t.title && t.title.toLowerCase().includes(q)) ||
@@ -1324,7 +1533,9 @@
                 (t.name && t.name.toLowerCase().includes(q))
             );
             renderTracks();
-        });
+        }
+
+        searchInput.addEventListener('input', applySearchFilter);
 
         async function sendToChat(fileId) {
             try {
@@ -1338,30 +1549,82 @@
             } catch (e) {}
         }
 
-        async function deleteTrack(fileId) {
-            try {
-                const res = await fetch(`/api/playlist?file_id=${encodeURIComponent(fileId)}`, {
-                    method: 'DELETE',
-                    headers: authHeaders()
-                });
-                if (!res.ok) return;
-                const wasCurrent = currentFileId === fileId;
-                allTracks = allTracks.filter(t => t.file_id !== fileId);
-                filteredTracks = filteredTracks.filter(t => t.file_id !== fileId);
-                shuffledIds = shuffledIds.filter(id => id !== fileId);
-                if (wasCurrent) {
-                    if (filteredTracks.length > 0) {
-                        playNextTrack();
-                    } else {
-                        audio.pause();
-                        audio.src = '';
-                        currentFileId = null;
-                        closeFullPlayer();
-                        playerBar.classList.remove('visible');
-                    }
+        function commitServerDelete(fileId, keepalive = false) {
+            fetch(`/api/playlist?file_id=${encodeURIComponent(fileId)}`, {
+                method: 'DELETE',
+                headers: authHeaders(),
+                keepalive
+            }).catch(() => {});
+        }
+
+        function flushPendingDelete(keepalive = false) {
+            if (!pendingDelete) return;
+            clearTimeout(pendingDelete.timer);
+            const fileId = pendingDelete.track.file_id;
+            pendingDelete = null;
+            undoToast.classList.remove('visible');
+            commitServerDelete(fileId, keepalive);
+        }
+
+        function showUndoToast(track) {
+            undoToastText.textContent = `Удалён: ${track.title || track.name}`;
+            undoToast.classList.add('visible');
+        }
+
+        undoDeleteBtn.addEventListener('click', () => {
+            if (!pendingDelete) return;
+            haptic('light');
+            clearTimeout(pendingDelete.timer);
+            const { track, allIndex } = pendingDelete;
+            pendingDelete = null;
+            undoToast.classList.remove('visible');
+
+            const insertAt = Math.min(allIndex, allTracks.length);
+            allTracks.splice(insertAt, 0, track);
+            if (isShuffle) rebuildShuffleQueue();
+            applySearchFilter();
+        });
+
+        window.addEventListener('pagehide', () => flushPendingDelete(true));
+
+        function deleteTrack(fileId) {
+            // Если есть предыдущее отложенное удаление — сразу подтверждаем его на сервере
+            flushPendingDelete(false);
+
+            const allIndex = allTracks.findIndex(t => t.file_id === fileId);
+            if (allIndex === -1) return;
+            const track = allTracks[allIndex];
+
+            haptic('medium');
+            const wasCurrent = currentFileId === fileId;
+            allTracks.splice(allIndex, 1);
+            filteredTracks = filteredTracks.filter(t => t.file_id !== fileId);
+            shuffledIds = shuffledIds.filter(id => id !== fileId);
+
+            if (wasCurrent) {
+                if (filteredTracks.length > 0) {
+                    playNextTrack();
+                } else {
+                    audio.pause();
+                    audio.src = '';
+                    currentFileId = null;
+                    closeFullPlayer();
+                    playerBar.classList.remove('visible');
+                    document.body.classList.remove('has-player');
                 }
-                renderTracks();
-            } catch (e) {}
+            }
+            renderTracks();
+
+            showUndoToast(track);
+            const timer = setTimeout(() => {
+                if (pendingDelete && pendingDelete.track.file_id === fileId) {
+                    pendingDelete = null;
+                    undoToast.classList.remove('visible');
+                    commitServerDelete(fileId, false);
+                }
+            }, 5000);
+
+            pendingDelete = { track, allIndex, timer };
         }
 
         function escapeHtml(str) {
