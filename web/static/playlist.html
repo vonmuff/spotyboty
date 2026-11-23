@@ -749,16 +749,18 @@
         }
 
         .fp-bg-img {
+            position: absolute;
+            inset: 0;
             width: 100%;
             height: 100%;
             object-fit: cover;
             filter: blur(55px) saturate(1.65) brightness(0.42);
             transform: scale(1.28);
             opacity: 0;
-            transition: opacity 0.45s ease;
+            transition: opacity 0.55s ease;
         }
 
-        .fp-bg-img.loaded {
+        .fp-bg-img.visible {
             opacity: 1;
         }
 
@@ -867,15 +869,17 @@
         }
 
         .fp-art-box img {
+            position: absolute;
+            inset: 0;
             width: 100%;
             height: 100%;
             object-fit: cover;
             display: block;
             opacity: 0;
-            transition: opacity 0.3s ease;
+            transition: opacity 0.36s ease;
         }
 
-        .fp-art-box img.loaded {
+        .fp-art-box img.visible {
             opacity: 1;
         }
 
@@ -1049,7 +1053,8 @@
 
     <div id="fullPlayer" class="full-player" aria-hidden="true">
         <div class="fp-bg">
-            <img id="fpBgImg" class="fp-bg-img" src="" alt="">
+            <img id="fpBgImgA" class="fp-bg-img" src="" alt="">
+            <img id="fpBgImgB" class="fp-bg-img" src="" alt="">
         </div>
         <div class="fp-content">
             <div>
@@ -1065,8 +1070,9 @@
 
             <div class="fp-art-wrap">
                 <div id="fpArtBox" class="fp-art-box">
-                    <img id="fpCover" src="" alt="">
                     <span id="fpCoverFallback" class="fp-art-fallback">🎵</span>
+                    <img id="fpCoverA" src="" alt="">
+                    <img id="fpCoverB" src="" alt="">
                 </div>
             </div>
 
@@ -1220,11 +1226,13 @@
         const totalTimeEl = document.getElementById('totalTime');
 
         const fullPlayer = document.getElementById('fullPlayer');
-        const fpBgImg = document.getElementById('fpBgImg');
+        const fpBgImgs = [document.getElementById('fpBgImgA'), document.getElementById('fpBgImgB')];
         const fpCollapseBtn = document.getElementById('fpCollapseBtn');
         const fpArtBox = document.getElementById('fpArtBox');
-        const fpCover = document.getElementById('fpCover');
+        const fpCovers = [document.getElementById('fpCoverA'), document.getElementById('fpCoverB')];
         const fpCoverFallback = document.getElementById('fpCoverFallback');
+        let fpActiveLayer = 0;
+        let fpCoverSeq = 0;
         const fpTitle = document.getElementById('fpTitle');
         const fpArtist = document.getElementById('fpArtist');
         const fpSeekWrapper = document.getElementById('fpSeekWrapper');
@@ -1491,18 +1499,56 @@
             }
         });
 
-        fpCover.addEventListener('load', () => {
-            fpCover.style.display = 'block';
-            fpCoverFallback.style.display = 'none';
-            requestAnimationFrame(() => fpCover.classList.add('loaded'));
-        });
-        fpCover.addEventListener('error', () => {
-            fpCover.classList.remove('loaded');
-            fpCover.style.display = 'none';
-            fpCoverFallback.style.display = 'block';
-        });
-        fpBgImg.addEventListener('load', () => fpBgImg.classList.add('loaded'));
-        fpBgImg.addEventListener('error', () => fpBgImg.classList.remove('loaded'));
+        function crossfadeFullPlayerCover(coverUrl) {
+            const seq = ++fpCoverSeq;
+            const prevIdx = fpActiveLayer;
+            const nextIdx = 1 - fpActiveLayer;
+
+            const prevCover = fpCovers[prevIdx];
+            const nextCover = fpCovers[nextIdx];
+            const prevBg = fpBgImgs[prevIdx];
+            const nextBg = fpBgImgs[nextIdx];
+
+            // Ставим новый слой поверх старого (opacity: 0), старая обложка остаётся видимой
+            prevCover.style.zIndex = '1';
+            nextCover.style.zIndex = '2';
+            prevBg.style.zIndex = '1';
+            nextBg.style.zIndex = '2';
+
+            nextCover.classList.remove('visible');
+            nextBg.classList.remove('visible');
+
+            const preload = new Image();
+            preload.onload = () => {
+                if (seq !== fpCoverSeq) return;
+                fpCoverFallback.style.display = 'none';
+                nextCover.src = coverUrl;
+                nextBg.src = coverUrl;
+                requestAnimationFrame(() => {
+                    requestAnimationFrame(() => {
+                        if (seq !== fpCoverSeq) return;
+                        nextCover.classList.add('visible');
+                        nextBg.classList.add('visible');
+                        fpActiveLayer = nextIdx;
+                        setTimeout(() => {
+                            if (fpActiveLayer === nextIdx) {
+                                prevCover.classList.remove('visible');
+                                prevBg.classList.remove('visible');
+                            }
+                        }, 560);
+                    });
+                });
+            };
+            preload.onerror = () => {
+                if (seq !== fpCoverSeq) return;
+                prevCover.classList.remove('visible');
+                nextCover.classList.remove('visible');
+                prevBg.classList.remove('visible');
+                nextBg.classList.remove('visible');
+                fpCoverFallback.style.display = 'block';
+            };
+            preload.src = coverUrl;
+        }
 
         playerTrackTrigger.addEventListener('click', openFullPlayer);
         fpCollapseBtn.addEventListener('click', () => {
@@ -1652,12 +1698,7 @@
 
             setMarqueeText(fpTitle, titleText);
             setMarqueeText(fpArtist, artistText);
-            fpCover.classList.remove('loaded');
-            fpCover.style.display = 'block';
-            fpCoverFallback.style.display = 'none';
-            fpCover.src = track.cover_url;
-            fpBgImg.classList.remove('loaded');
-            fpBgImg.src = track.cover_url;
+            crossfadeFullPlayerCover(track.cover_url);
 
             seekSlider.value = 0;
             fpSeekSlider.value = 0;
