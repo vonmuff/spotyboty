@@ -862,11 +862,21 @@
             box-shadow: 0 26px 60px rgba(0, 0, 0, 0.68);
         }
 
+        .fp-art-box.swiping {
+            transition: none;
+        }
+
         .fp-art-box img {
             width: 100%;
             height: 100%;
             object-fit: cover;
             display: block;
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+
+        .fp-art-box img.loaded {
+            opacity: 1;
         }
 
         .fp-art-fallback {
@@ -960,10 +970,28 @@
             background: var(--accent);
             color: #000;
             box-shadow: 0 8px 26px rgba(29, 185, 84, 0.42);
+            transition: transform 0.14s cubic-bezier(0.22, 1, 0.36, 1), background 0.2s ease, box-shadow 0.3s ease;
+        }
+
+        .fp-ctrl-btn.play-pause.is-playing {
+            animation: playGlow 2.4s ease-in-out infinite;
+        }
+
+        .fp-ctrl-btn.play-pause:active {
+            transform: scale(0.9);
         }
 
         .fp-ctrl-btn.play-pause:hover {
             background: var(--accent-hover);
+        }
+
+        @keyframes playGlow {
+            0%, 100% {
+                box-shadow: 0 8px 24px rgba(29, 185, 84, 0.42), 0 0 0 0 rgba(29, 185, 84, 0.35);
+            }
+            50% {
+                box-shadow: 0 10px 30px rgba(29, 185, 84, 0.58), 0 0 0 10px rgba(29, 185, 84, 0);
+            }
         }
     </style>
 </head>
@@ -1465,8 +1493,10 @@
         fpCover.addEventListener('load', () => {
             fpCover.style.display = 'block';
             fpCoverFallback.style.display = 'none';
+            requestAnimationFrame(() => fpCover.classList.add('loaded'));
         });
         fpCover.addEventListener('error', () => {
+            fpCover.classList.remove('loaded');
             fpCover.style.display = 'none';
             fpCoverFallback.style.display = 'block';
         });
@@ -1479,44 +1509,91 @@
             closeFullPlayer();
         });
 
-        // Swipe-down gesture to collapse fullscreen player
+        // Gestures in fullscreen player: vertical swipe-down to close, horizontal swipe on cover to switch track
+        let swipeStartX = 0;
         let swipeStartY = 0;
         let swipeStartTime = 0;
+        let swipeDeltaX = 0;
         let swipeDeltaY = 0;
+        let swipeMode = null; // 'vertical' | 'horizontal' | null
+        let swipeStartedOnArt = false;
         let swipeActive = false;
 
         fullPlayer.addEventListener('touchstart', (e) => {
             if (!isFullPlayerOpen || e.touches.length !== 1) return;
             if (e.target.closest('.seek-wrapper') || e.target.closest('button')) return;
+            swipeStartX = e.touches[0].clientX;
             swipeStartY = e.touches[0].clientY;
             swipeStartTime = Date.now();
+            swipeDeltaX = 0;
             swipeDeltaY = 0;
+            swipeMode = null;
+            swipeStartedOnArt = Boolean(e.target.closest('#fpArtBox'));
             swipeActive = true;
-            fullPlayer.classList.add('dragging');
         }, { passive: true });
 
         fullPlayer.addEventListener('touchmove', (e) => {
             if (!swipeActive) return;
+            const dx = e.touches[0].clientX - swipeStartX;
             const dy = e.touches[0].clientY - swipeStartY;
-            if (dy > 0) {
-                swipeDeltaY = dy;
-                fullPlayer.style.transform = `translateY(${dy}px)`;
-            } else {
-                swipeDeltaY = 0;
-                fullPlayer.style.transform = 'translateY(0)';
+
+            if (!swipeMode) {
+                if (Math.abs(dx) < 10 && Math.abs(dy) < 10) return;
+                if (swipeStartedOnArt && Math.abs(dx) > Math.abs(dy)) {
+                    swipeMode = 'horizontal';
+                    fpArtBox.classList.add('swiping');
+                } else {
+                    swipeMode = 'vertical';
+                    fullPlayer.classList.add('dragging');
+                }
+            }
+
+            if (swipeMode === 'horizontal') {
+                swipeDeltaX = dx;
+                const clampedX = Math.max(-160, Math.min(160, dx));
+                const rot = clampedX * 0.035;
+                const op = Math.max(0.45, 1 - Math.abs(clampedX) / 260);
+                fpArtBox.style.transform = `translateX(${clampedX}px) rotate(${rot}deg) scale(${audio.paused ? 0.92 : 1})`;
+                fpArtBox.style.opacity = `${op}`;
+            } else if (swipeMode === 'vertical') {
+                if (dy > 0) {
+                    swipeDeltaY = dy;
+                    fullPlayer.style.transform = `translateY(${dy}px)`;
+                } else {
+                    swipeDeltaY = 0;
+                    fullPlayer.style.transform = 'translateY(0)';
+                }
             }
         }, { passive: true });
 
         fullPlayer.addEventListener('touchend', () => {
             if (!swipeActive) return;
             swipeActive = false;
-            fullPlayer.classList.remove('dragging');
-            const velocity = swipeDeltaY / Math.max(1, Date.now() - swipeStartTime);
-            if (swipeDeltaY > 90 || velocity > 0.55) {
-                closeFullPlayer();
-            } else {
-                fullPlayer.style.transform = '';
+            const elapsed = Math.max(1, Date.now() - swipeStartTime);
+
+            if (swipeMode === 'horizontal') {
+                fpArtBox.classList.remove('swiping');
+                fpArtBox.style.transform = '';
+                fpArtBox.style.opacity = '';
+                const vx = Math.abs(swipeDeltaX) / elapsed;
+                if (Math.abs(swipeDeltaX) > 65 || vx > 0.45) {
+                    haptic('light');
+                    if (swipeDeltaX < 0) {
+                        playNextTrack();
+                    } else {
+                        playPrevTrack();
+                    }
+                }
+            } else if (swipeMode === 'vertical') {
+                fullPlayer.classList.remove('dragging');
+                const vy = swipeDeltaY / elapsed;
+                if (swipeDeltaY > 90 || vy > 0.55) {
+                    closeFullPlayer();
+                } else {
+                    fullPlayer.style.transform = '';
+                }
             }
+            swipeMode = null;
         });
 
         function scrollToActiveTrack() {
@@ -1562,6 +1639,7 @@
 
             setMarqueeText(fpTitle, titleText);
             setMarqueeText(fpArtist, artistText);
+            fpCover.classList.remove('loaded');
             fpCover.style.display = 'block';
             fpCoverFallback.style.display = 'none';
             fpCover.src = track.cover_url;
@@ -1644,6 +1722,7 @@
             fpPlayIcon.style.display = playing ? 'none' : 'block';
             fpPauseIcon.style.display = playing ? 'block' : 'none';
             fpArtBox.classList.toggle('playing', playing);
+            fpPlayPauseBtn.classList.toggle('is-playing', playing);
             document.querySelectorAll('.eq-overlay').forEach(el => {
                 el.classList.toggle('paused', !playing);
             });
