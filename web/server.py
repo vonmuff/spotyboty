@@ -187,10 +187,24 @@ async def healthcheck(request):
         return web.json_response({'status': 'error'}, status=503)
 
 
+def _get_asset_version() -> str:
+    mtimes = []
+    for fname in ("playlist.html", "style.css", "app.js"):
+        fpath = os.path.join(WEB_STATIC_DIR, fname)
+        if os.path.isfile(fpath):
+            mtimes.append(str(int(os.path.getmtime(fpath))))
+    return "-".join(mtimes) or "1"
+
+
 @routes.get('/')
 async def index(request):
-    return web.FileResponse(
-        os.path.join(WEB_STATIC_DIR, 'playlist.html'),
+    html_path = os.path.join(WEB_STATIC_DIR, 'playlist.html')
+    with open(html_path, "r", encoding="utf-8") as f:
+        html = f.read().replace("__ASSET_V__", _get_asset_version())
+    return web.Response(
+        text=html,
+        content_type="text/html",
+        charset="utf-8",
         headers={
             "Cache-Control": "no-cache, no-store, must-revalidate",
             "Pragma": "no-cache",
@@ -395,6 +409,7 @@ def create_web_app(bot: Bot) -> web.Application:
     bot_instance = bot
     app = web.Application()
     app.add_routes(routes)
+    app.router.add_static('/static', WEB_STATIC_DIR)
     app.on_startup.append(_on_startup)
     app.on_cleanup.append(_on_cleanup)
     return app
