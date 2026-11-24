@@ -712,11 +712,16 @@ body.fp-open {
     flex-direction: column;
     justify-content: space-between;
     padding: env(safe-area-inset-top, 12px) 24px calc(env(safe-area-inset-bottom, 16px) + 18px);
-    transform: translateY(100%);
-    transition: transform 0.36s cubic-bezier(0.22, 1, 0.36, 1);
+    transform: translate3d(0, 100%, 0);
+    visibility: hidden;
+    pointer-events: none;
+    transition: transform 0.36s cubic-bezier(0.22, 1, 0.36, 1), visibility 0s linear 0.36s;
     will-change: transform;
+    backface-visibility: hidden;
+    -webkit-backface-visibility: hidden;
+    contain: layout paint style;
     overflow: hidden;
-    touch-action: pan-x;
+    touch-action: none;
 }
 
 .full-player .time-label {
@@ -724,7 +729,10 @@ body.fp-open {
 }
 
 .full-player.open {
-    transform: translateY(0);
+    transform: translate3d(0, 0, 0);
+    visibility: visible;
+    pointer-events: auto;
+    transition: transform 0.36s cubic-bezier(0.22, 1, 0.36, 1), visibility 0s linear 0s;
 }
 
 .full-player.dragging {

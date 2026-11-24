@@ -322,33 +322,60 @@ function refreshAllMarquees() {
 
 window.addEventListener('resize', refreshAllMarquees);
 
+let fpOpenTimer = null;
+
 function openFullPlayer() {
-    if (!currentFileId) return;
+    if (!currentFileId || isFullPlayerOpen) return;
     isFullPlayerOpen = true;
+    if (fpOpenTimer) {
+        clearTimeout(fpOpenTimer);
+        fpOpenTimer = null;
+    }
+
+    // Запускаем чистый GPU-переход на следующем кадре без синхронного reflow
     fullPlayer.style.transform = '';
-    fullPlayer.classList.add('open');
     fullPlayer.setAttribute('aria-hidden', 'false');
-    document.body.classList.add('fp-open');
-    applyTelegramTheme();
-    refreshAllMarquees();
+    requestAnimationFrame(() => {
+        fullPlayer.classList.add('open');
+    });
+
     haptic('light');
     try {
         tg.BackButton?.show();
     } catch (e) {}
+
+    // Тяжёлые операции (overflow: hidden на body, смена цвета шапки TG, пересчёт marquee)
+    // выполняем ПОСЛЕ завершения 60fps анимации выезда, чтобы не было рывка на 1-м кадре
+    fpOpenTimer = setTimeout(() => {
+        if (!isFullPlayerOpen) return;
+        document.body.classList.add('fp-open');
+        applyTelegramTheme();
+        refreshAllMarquees();
+    }, 370);
 }
 
 function closeFullPlayer() {
     if (!isFullPlayerOpen) return;
     isFullPlayerOpen = false;
+    if (fpOpenTimer) {
+        clearTimeout(fpOpenTimer);
+        fpOpenTimer = null;
+    }
+
+    document.body.classList.remove('fp-open');
     fullPlayer.style.transform = '';
     fullPlayer.classList.remove('open', 'dragging');
     fullPlayer.setAttribute('aria-hidden', 'true');
-    document.body.classList.remove('fp-open');
-    applyTelegramTheme();
+
     try {
         tg.BackButton?.hide();
     } catch (e) {}
-    scrollToActiveTrack();
+
+    setTimeout(() => {
+        if (isFullPlayerOpen) return;
+        applyTelegramTheme();
+        scrollToActiveTrack();
+    }, 370);
 }
 
 applyTelegramTheme();
