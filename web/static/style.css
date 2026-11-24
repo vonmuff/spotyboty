@@ -1104,6 +1104,40 @@ body.no-ambient-bg .fp-bg-blur-layer {
     display: none !important;
 }
 
+body.hide-send-btn .icon-btn[data-action="send"] {
+    display: none !important;
+}
+
+body.compact-list .track-list {
+    gap: 5px;
+}
+
+body.compact-list .track-item {
+    padding: 6px 8px;
+    gap: 10px;
+    border-radius: 11px;
+}
+
+body.compact-list .cover-wrapper {
+    width: 40px;
+    height: 40px;
+    border-radius: 8px;
+}
+
+body.compact-list .track-title {
+    font-size: 14px;
+    margin-bottom: 1px;
+}
+
+body.compact-list .track-artist {
+    font-size: 12px;
+}
+
+body.compact-list .icon-btn {
+    width: 30px;
+    height: 30px;
+}
+
 /* ===== Settings Bottom Sheet ===== */
 body.settings-open {
     overflow: hidden;
@@ -1242,6 +1276,10 @@ body.settings-open {
     padding: 4px;
     border-radius: 12px;
     border: 1px solid var(--border-subtle);
+}
+
+.segmented-control.segmented-2 {
+    grid-template-columns: repeat(2, 1fr);
 }
 
 .seg-btn {
