@@ -8,9 +8,9 @@ from datetime import datetime, timedelta
 from typing import Any, Optional
 
 import aiosqlite
-from aiogram import Router, types
+from aiogram import F, Router, types
 from aiogram.filters import Command
-from aiogram.types import BufferedInputFile, FSInputFile
+from aiogram.types import BufferedInputFile, FSInputFile, InlineKeyboardButton, InlineKeyboardMarkup
 
 from bot.config import ADMIN_ID, DB_PATH, DOWNLOAD_TIMEOUT, STORAGE_CHAT_ID, TOP_SONGS_FILE
 from bot.handlers.downloads import process_and_send_download, process_direct_url_download
@@ -25,6 +25,7 @@ from services.cache import (
     remove_cached_cover,
 )
 from services.downloader import download_cover_bytes, download_track_fast_sync, save_cover_to_cache
+from services.monitor import build_server_report
 from services.spotify import (
     discover_spotify_tracks_sync,
     inspect_spotify_metadata_sync,
@@ -39,6 +40,32 @@ router = Router()
 _seed_task: Optional[asyncio.Task] = None
 _seed_stop_event: Optional[asyncio.Event] = None
 _seed_state: dict[str, Any] = {}
+
+
+SERVER_REFRESH_MARKUP = InlineKeyboardMarkup(inline_keyboard=[
+    [InlineKeyboardButton(text="🔄 Обновить", callback_data="srv_refresh")]
+])
+
+
+@router.message(Command("server"))
+async def cmd_server(message: types.Message):
+    if message.from_user.id != ADMIN_ID:
+        return
+    report = await build_server_report()
+    await message.answer(report, parse_mode="HTML", reply_markup=SERVER_REFRESH_MARKUP)
+
+
+@router.callback_query(F.data == "srv_refresh")
+async def cq_server_refresh(callback: types.CallbackQuery):
+    if callback.from_user.id != ADMIN_ID:
+        await callback.answer("Нет доступа", show_alert=True)
+        return
+    report = await build_server_report()
+    try:
+        await callback.message.edit_text(report, parse_mode="HTML", reply_markup=SERVER_REFRESH_MARKUP)
+    except Exception:
+        pass
+    await callback.answer("🔄 Обновлено")
 
 
 @router.message(Command("stats"))
