@@ -604,6 +604,74 @@ function endFullPlayerSwipe() {
 fullPlayer.addEventListener('touchend', endFullPlayerSwipe);
 fullPlayer.addEventListener('touchcancel', endFullPlayerSwipe);
 
+let smoothScrollRafId = null;
+
+function cancelSmoothScroll() {
+    if (smoothScrollRafId !== null) {
+        cancelAnimationFrame(smoothScrollRafId);
+        smoothScrollRafId = null;
+    }
+}
+
+window.addEventListener('touchstart', cancelSmoothScroll, { passive: true });
+window.addEventListener('wheel', cancelSmoothScroll, { passive: true });
+
+function smoothScrollToY(targetY) {
+    cancelSmoothScroll();
+    const maxScroll = Math.max(0, document.documentElement.scrollHeight - window.innerHeight);
+    const clampedTarget = Math.max(0, Math.min(targetY, maxScroll));
+    const startY = window.scrollY || document.documentElement.scrollTop || 0;
+    const distance = clampedTarget - startY;
+
+    if (Math.abs(distance) < 4) return;
+
+    // Адаптивная длительность: короткий скролл ~280ms, длинный прыжок в Shuffle до 560ms
+    const duration = Math.min(560, Math.max(280, Math.abs(distance) * 0.32));
+    const startTime = performance.now();
+
+    function step(now) {
+        const elapsed = now - startTime;
+        const progress = Math.min(1, elapsed / duration);
+        // Плавная кривая easeOutCubic (60/120 FPS)
+        const eased = 1 - Math.pow(1 - progress, 3);
+        window.scrollTo(0, startY + distance * eased);
+
+        if (progress < 1) {
+            smoothScrollRafId = requestAnimationFrame(step);
+        } else {
+            smoothScrollRafId = null;
+        }
+    }
+
+    smoothScrollRafId = requestAnimationFrame(step);
+}
+
+function syncActiveTrackInDOM() {
+    const prevItems = trackListEl.querySelectorAll('.track-item.active');
+    prevItems.forEach((el) => {
+        if (el.dataset.fileId !== currentFileId) {
+            el.classList.remove('active');
+            const eq = el.querySelector('.eq-overlay');
+            if (eq) eq.remove();
+        }
+    });
+
+    if (!currentFileId) return;
+    const nextItem = Array.from(trackListEl.children).find(
+        (el) => el.dataset && el.dataset.fileId === currentFileId
+    );
+    if (!nextItem) return;
+
+    nextItem.classList.add('active');
+    const coverWrap = nextItem.querySelector('.cover-wrapper');
+    if (coverWrap && !coverWrap.querySelector('.eq-overlay')) {
+        const eq = document.createElement('div');
+        eq.className = `eq-overlay ${audio.paused ? 'paused' : ''}`;
+        eq.innerHTML = '<span></span><span></span><span></span>';
+        coverWrap.appendChild(eq);
+    }
+}
+
 function scrollToActiveTrack() {
     if (isFullPlayerOpen) return;
     requestAnimationFrame(() => {
@@ -620,7 +688,7 @@ function scrollToActiveTrack() {
 
         // Центрируем активный трек в видимой области между шапкой и нижним плеером
         const targetTop = Math.max(0, itemAbsTop - headerH - (visibleHeight - rect.height) / 2);
-        window.scrollTo({ top: targetTop, behavior: 'smooth' });
+        smoothScrollToY(targetTop);
     });
 }
 
@@ -638,7 +706,7 @@ window.addEventListener('scroll', () => {
 
 scrollTopBtn.addEventListener('click', () => {
     haptic('light');
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+    smoothScrollToY(0);
 });
 
 function playTrackById(fileId, shouldScroll = false) {
@@ -673,7 +741,7 @@ function playTrackById(fileId, shouldScroll = false) {
         updatePlayButtons(false);
     });
     updatePlayButtons(true);
-    renderTracks();
+    syncActiveTrackInDOM();
     if (shouldScroll) {
         scrollToActiveTrack();
     }
