@@ -1000,6 +1000,72 @@ body.fp-open {
     background: var(--accent-hover);
 }
 
+/* ===== Light Pastel Fullscreen Player (Telegram Light Theme) ===== */
+:root[data-theme="light"] .full-player {
+    background: var(--bg-main);
+    color: var(--text-primary);
+    --track-bg: rgba(0, 0, 0, 0.13);
+    --thumb-bg: var(--text-primary);
+}
+
+:root[data-theme="light"] .fp-bg {
+    background: radial-gradient(circle at 50% 25%, #eceff5 0%, var(--bg-main) 78%);
+}
+
+:root[data-theme="light"] .fp-bg-blur-layer {
+    filter: blur(56px) saturate(1.75) brightness(1.08);
+    opacity: 0.38;
+}
+
+:root[data-theme="light"] .fp-bg::after {
+    background: linear-gradient(
+        180deg,
+        rgba(255, 255, 255, 0.35) 0%,
+        rgba(255, 255, 255, 0.64) 55%,
+        color-mix(in srgb, var(--bg-main) 95%, transparent) 100%
+    );
+}
+
+:root[data-theme="light"] .fp-handle {
+    background: rgba(0, 0, 0, 0.2);
+}
+
+:root[data-theme="light"] .fp-collapse-btn {
+    background: rgba(0, 0, 0, 0.06);
+    color: var(--text-primary);
+}
+
+:root[data-theme="light"] .fp-collapse-btn:hover {
+    background: rgba(0, 0, 0, 0.12);
+}
+
+:root[data-theme="light"] .fp-header-label,
+:root[data-theme="light"] .fp-artist,
+:root[data-theme="light"] .full-player .time-label {
+    color: var(--text-secondary);
+}
+
+:root[data-theme="light"] .fp-art-box {
+    background: linear-gradient(135deg, #e5e7eb, #f3f4f6);
+    box-shadow: 0 18px 42px rgba(0, 0, 0, 0.16);
+}
+
+:root[data-theme="light"] .fp-art-box.playing {
+    box-shadow: 0 22px 50px rgba(0, 0, 0, 0.22);
+}
+
+:root[data-theme="light"] .fp-ctrl-btn {
+    color: var(--text-primary);
+}
+
+:root[data-theme="light"] .fp-ctrl-btn.active-mode {
+    color: var(--accent);
+}
+
+:root[data-theme="light"] .fp-ctrl-btn.play-pause {
+    color: #ffffff;
+}
+
 @keyframes playGlow {
     0%, 100% {
         box-shadow: 0 8px 24px rgba(29, 185, 84, 0.42), 0 0 0 0 rgba(29, 185, 84, 0.35);

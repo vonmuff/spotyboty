@@ -5,9 +5,9 @@ tg.expand();
 function applyTelegramTheme() {
     const scheme = tg.colorScheme || 'dark';
     document.documentElement.dataset.theme = scheme;
-    const bgColor = tg.themeParams?.bg_color || '#0f0f13';
+    const bgColor = tg.themeParams?.bg_color || (scheme === 'light' ? '#ffffff' : '#0f0f13');
     try {
-        if (isFullPlayerOpen) {
+        if (isFullPlayerOpen && scheme !== 'light') {
             tg.setHeaderColor?.('#0f0f13');
             tg.setBackgroundColor?.('#0f0f13');
         } else {
