@@ -3,6 +3,7 @@ tg.ready();
 tg.expand();
 
 const SETTINGS_STORAGE_KEY = 'spotyboty_settings_v1';
+const LAST_TRACK_STORAGE_KEY = 'spotyboty_last_track_v1';
 
 const ACCENT_PRESETS = {
     spotify: { accent: '#1db954', hover: '#1ed760' },
@@ -16,8 +17,12 @@ const ACCENT_PRESETS = {
 const DEFAULT_SETTINGS = {
     accent: 'spotify',
     fpTheme: 'auto', // 'auto' | 'dark' | 'light'
+    density: 'normal', // 'normal' | 'compact'
     equalizer: true,
     ambientBg: true,
+    showSendBtn: true,
+    autoOpenPlayer: false,
+    rememberLastTrack: true,
     autoScroll: true,
     haptic: true,
 };
@@ -71,6 +76,8 @@ function applyUserSettings() {
     document.documentElement.style.setProperty('--accent-hover', preset.hover);
     document.body.classList.toggle('no-equalizer', !userSettings.equalizer);
     document.body.classList.toggle('no-ambient-bg', !userSettings.ambientBg);
+    document.body.classList.toggle('hide-send-btn', !userSettings.showSendBtn);
+    document.body.classList.toggle('compact-list', userSettings.density === 'compact');
     applyTelegramTheme();
 }
 
@@ -184,8 +191,12 @@ const settingsSheet = document.getElementById('settingsSheet');
 const settingsCloseBtn = document.getElementById('settingsCloseBtn');
 const accentPalette = document.getElementById('accentPalette');
 const fpThemeSegment = document.getElementById('fpThemeSegment');
+const densitySegment = document.getElementById('densitySegment');
 const optEqualizer = document.getElementById('optEqualizer');
 const optAmbientBg = document.getElementById('optAmbientBg');
+const optShowSendBtn = document.getElementById('optShowSendBtn');
+const optAutoOpenPlayer = document.getElementById('optAutoOpenPlayer');
+const optRememberLast = document.getElementById('optRememberLast');
 const optAutoScroll = document.getElementById('optAutoScroll');
 const optHaptic = document.getElementById('optHaptic');
 const settingsResetBtn = document.getElementById('settingsResetBtn');
@@ -197,8 +208,14 @@ function syncSettingsUI() {
     fpThemeSegment.querySelectorAll('.seg-btn').forEach((btn) => {
         btn.classList.toggle('active', btn.dataset.fpTheme === userSettings.fpTheme);
     });
+    densitySegment.querySelectorAll('.seg-btn').forEach((btn) => {
+        btn.classList.toggle('active', btn.dataset.density === userSettings.density);
+    });
     optEqualizer.checked = Boolean(userSettings.equalizer);
     optAmbientBg.checked = Boolean(userSettings.ambientBg);
+    optShowSendBtn.checked = Boolean(userSettings.showSendBtn);
+    optAutoOpenPlayer.checked = Boolean(userSettings.autoOpenPlayer);
+    optRememberLast.checked = Boolean(userSettings.rememberLastTrack);
     optAutoScroll.checked = Boolean(userSettings.autoScroll);
     optHaptic.checked = Boolean(userSettings.haptic);
 }
@@ -330,6 +347,16 @@ fpThemeSegment.addEventListener('click', (e) => {
     haptic('light');
 });
 
+densitySegment.addEventListener('click', (e) => {
+    const btn = e.target.closest('.seg-btn');
+    if (!btn) return;
+    userSettings.density = btn.dataset.density;
+    saveUserSettings();
+    applyUserSettings();
+    syncSettingsUI();
+    haptic('light');
+});
+
 optEqualizer.addEventListener('change', () => {
     userSettings.equalizer = optEqualizer.checked;
     saveUserSettings();
@@ -341,6 +368,30 @@ optAmbientBg.addEventListener('change', () => {
     userSettings.ambientBg = optAmbientBg.checked;
     saveUserSettings();
     applyUserSettings();
+    haptic('light');
+});
+
+optShowSendBtn.addEventListener('change', () => {
+    userSettings.showSendBtn = optShowSendBtn.checked;
+    saveUserSettings();
+    applyUserSettings();
+    haptic('light');
+});
+
+optAutoOpenPlayer.addEventListener('change', () => {
+    userSettings.autoOpenPlayer = optAutoOpenPlayer.checked;
+    saveUserSettings();
+    haptic('light');
+});
+
+optRememberLast.addEventListener('change', () => {
+    userSettings.rememberLastTrack = optRememberLast.checked;
+    saveUserSettings();
+    if (!userSettings.rememberLastTrack) {
+        try { localStorage.removeItem(LAST_TRACK_STORAGE_KEY); } catch (e) {}
+    } else if (currentFileId) {
+        saveLastTrackState(true);
+    }
     haptic('light');
 });
 
@@ -439,6 +490,58 @@ function renderSkeleton(count = 6) {
     `).join('');
 }
 
+let pendingResumeTime = null;
+let lastTrackSaveAt = 0;
+
+function saveLastTrackState(force = false) {
+    if (!userSettings.rememberLastTrack || !currentFileId) return;
+    const now = Date.now();
+    if (!force && now - lastTrackSaveAt < 4000) return;
+    lastTrackSaveAt = now;
+    try {
+        localStorage.setItem(
+            LAST_TRACK_STORAGE_KEY,
+            JSON.stringify({
+                file_id: currentFileId,
+                time: Math.floor(audio.currentTime || 0),
+            })
+        );
+    } catch (e) {}
+}
+
+function restoreLastTrackIfEnabled() {
+    if (!userSettings.rememberLastTrack || currentFileId) return;
+    let saved = null;
+    try {
+        const raw = localStorage.getItem(LAST_TRACK_STORAGE_KEY);
+        if (raw) saved = JSON.parse(raw);
+    } catch (e) {}
+    if (!saved || !saved.file_id) return;
+
+    const track = allTracks.find(t => t.file_id === saved.file_id);
+    if (!track) return;
+
+    currentFileId = track.file_id;
+    const titleText = track.title || track.name;
+    const artistText = track.performer || 'Spotify';
+
+    playerBar.classList.add('visible');
+    document.body.classList.add('has-player');
+    setMarqueeText(playerTitle, titleText);
+    playerArtist.textContent = artistText;
+    playerCover.style.visibility = 'visible';
+    playerCover.src = track.cover_url;
+
+    setMarqueeText(fpTitle, titleText);
+    setMarqueeText(fpArtist, artistText);
+    crossfadeFullPlayerCover(track.cover_url, true);
+
+    pendingResumeTime = typeof saved.time === 'number' && saved.time > 0 ? saved.time : null;
+    audio.src = track.stream_url;
+    updatePlayButtons(false);
+    syncActiveTrackInDOM();
+}
+
 async function loadPlaylist() {
     if (!initData) {
         trackListEl.innerHTML = `<div class="empty-state">Откройте плейлист через кнопку в Telegram-боте.</div>`;
@@ -454,6 +557,7 @@ async function loadPlaylist() {
         allTracks = data.tracks || [];
         filteredTracks = [...allTracks];
         renderTracks({ animateEntrance: true });
+        restoreLastTrackIfEnabled();
     } catch (err) {
         trackListEl.innerHTML = `<div class="empty-state">Ошибка загрузки плейлиста</div>`;
     }
@@ -521,6 +625,9 @@ function renderTracks(options = {}) {
                 return;
             }
             playTrackById(track.file_id);
+            if (userSettings.autoOpenPlayer) {
+                openFullPlayer();
+            }
         });
 
         trackListEl.appendChild(item);
@@ -979,6 +1086,7 @@ function playTrackById(fileId, shouldScroll = false) {
     setMarqueeText(fpArtist, artistText);
     crossfadeFullPlayerCover(track.cover_url, nextCoverInstant);
 
+    pendingResumeTime = null;
     seekSlider.value = 0;
     fpSeekSlider.value = 0;
     setProgressVisual(0, 0);
@@ -986,6 +1094,7 @@ function playTrackById(fileId, shouldScroll = false) {
     // Не даём внутреннему событию pause при смене audio.src сжимать обложку во время буферизации
     isSwitchingTrack = true;
     audio.src = track.stream_url;
+    saveLastTrackState(true);
     audio.play().catch(() => {
         isSwitchingTrack = false;
         updatePlayButtons(false);
@@ -1118,19 +1227,29 @@ audio.addEventListener('pause', () => {
     if (isSwitchingTrack) return;
     updatePlayButtons(false);
     stopProgressLoop();
+    saveLastTrackState(true);
 });
 audio.addEventListener('loadedmetadata', () => {
+    if (pendingResumeTime !== null && audio.duration) {
+        const clamped = Math.max(0, Math.min(pendingResumeTime, Math.max(0, audio.duration - 1)));
+        audio.currentTime = clamped;
+        pendingResumeTime = null;
+    }
     setProgressVisual(audio.currentTime || 0, audio.duration || 0);
 });
 audio.addEventListener('seeked', () => {
     if (!isSeeking) {
         setProgressVisual(audio.currentTime || 0, audio.duration || 0);
+        saveLastTrackState(true);
     }
 });
 
 audio.addEventListener('timeupdate', () => {
     if (isSeeking) return;
     setProgressVisual(audio.currentTime || 0, audio.duration || 0);
+    if (!audio.paused) {
+        saveLastTrackState(false);
+    }
 });
 
 audio.addEventListener('ended', () => {
@@ -1224,7 +1343,10 @@ undoDeleteBtn.addEventListener('click', () => {
     applySearchFilter({ highlightFileId: track.file_id });
 });
 
-window.addEventListener('pagehide', () => flushPendingDelete(true));
+window.addEventListener('pagehide', () => {
+    saveLastTrackState(true);
+    flushPendingDelete(true);
+});
 
 function finalizeDeleteUI(fileId) {
     const allIndex = allTracks.findIndex(t => t.file_id === fileId);
