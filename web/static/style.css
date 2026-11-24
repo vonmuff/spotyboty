@@ -1105,11 +1105,16 @@ body.no-ambient-bg .fp-bg-blur-layer {
 }
 
 /* ===== Settings Bottom Sheet ===== */
+body.settings-open {
+    overflow: hidden;
+    touch-action: none;
+}
+
 .settings-backdrop {
     position: fixed;
     inset: 0;
-    z-index: 60;
-    background: rgba(0, 0, 0, 0.52);
+    z-index: 100;
+    background: rgba(0, 0, 0, 0.56);
     backdrop-filter: blur(6px);
     -webkit-backdrop-filter: blur(6px);
     display: flex;
@@ -1118,6 +1123,8 @@ body.no-ambient-bg .fp-bg-blur-layer {
     opacity: 0;
     visibility: hidden;
     pointer-events: none;
+    touch-action: none;
+    overscroll-behavior: contain;
     transition: opacity 0.24s ease, visibility 0s linear 0.24s;
 }
 
@@ -1133,6 +1140,8 @@ body.no-ambient-bg .fp-bg-blur-layer {
     max-width: 480px;
     max-height: 85vh;
     overflow-y: auto;
+    overscroll-behavior: contain;
+    touch-action: pan-y;
     background: var(--bg-main);
     color: var(--text-primary);
     border-top-left-radius: 22px;

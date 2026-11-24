@@ -206,6 +206,7 @@ function openSettings() {
     if (isSettingsOpen) return;
     isSettingsOpen = true;
     syncSettingsUI();
+    document.body.classList.add('settings-open');
     settingsBackdrop.classList.add('open');
     settingsBackdrop.setAttribute('aria-hidden', 'false');
     haptic('light');
@@ -217,6 +218,7 @@ function openSettings() {
 function closeSettings() {
     if (!isSettingsOpen) return;
     isSettingsOpen = false;
+    document.body.classList.remove('settings-open');
     settingsBackdrop.classList.remove('open');
     settingsBackdrop.setAttribute('aria-hidden', 'true');
     if (!isFullPlayerOpen) {
