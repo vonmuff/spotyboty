@@ -169,6 +169,14 @@
             </div>
 
             <div class="settings-section">
+                <div class="settings-label">Плотность списка</div>
+                <div id="densitySegment" class="segmented-control segmented-2">
+                    <button class="seg-btn" data-density="normal" type="button">Обычный</button>
+                    <button class="seg-btn" data-density="compact" type="button">Компактный</button>
+                </div>
+            </div>
+
+            <div class="settings-section">
                 <div class="settings-label">Интерфейс и поведение</div>
                 <div class="settings-list">
                     <label class="setting-row">
@@ -185,6 +193,30 @@
                             <span class="setting-desc">Динамическая подсветка в полноэкранном плеере</span>
                         </span>
                         <input type="checkbox" id="optAmbientBg" class="toggle-input">
+                        <span class="toggle-switch"></span>
+                    </label>
+                    <label class="setting-row">
+                        <span class="setting-text">
+                            <span class="setting-title">Кнопка «В чат» на карточках</span>
+                            <span class="setting-desc">Показывать иконку отправки трека в чат</span>
+                        </span>
+                        <input type="checkbox" id="optShowSendBtn" class="toggle-input">
+                        <span class="toggle-switch"></span>
+                    </label>
+                    <label class="setting-row">
+                        <span class="setting-text">
+                            <span class="setting-title">Сразу открывать плеер</span>
+                            <span class="setting-desc">Разворачивать на весь экран при выборе трека</span>
+                        </span>
+                        <input type="checkbox" id="optAutoOpenPlayer" class="toggle-input">
+                        <span class="toggle-switch"></span>
+                    </label>
+                    <label class="setting-row">
+                        <span class="setting-text">
+                            <span class="setting-title">Запоминать последний трек</span>
+                            <span class="setting-desc">Восстанавливать трек и позицию при открытии</span>
+                        </span>
+                        <input type="checkbox" id="optRememberLast" class="toggle-input">
                         <span class="toggle-switch"></span>
                     </label>
                     <label class="setting-row">
