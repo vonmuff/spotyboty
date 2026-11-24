@@ -180,6 +180,7 @@ const undoToastText = document.getElementById('undoToastText');
 const undoDeleteBtn = document.getElementById('undoDeleteBtn');
 const settingsBtn = document.getElementById('settingsBtn');
 const settingsBackdrop = document.getElementById('settingsBackdrop');
+const settingsSheet = document.getElementById('settingsSheet');
 const settingsCloseBtn = document.getElementById('settingsCloseBtn');
 const accentPalette = document.getElementById('accentPalette');
 const fpThemeSegment = document.getElementById('fpThemeSegment');
@@ -206,6 +207,8 @@ function openSettings() {
     if (isSettingsOpen) return;
     isSettingsOpen = true;
     syncSettingsUI();
+    settingsSheet.style.transform = '';
+    settingsSheet.classList.remove('dragging');
     document.body.classList.add('settings-open');
     settingsBackdrop.classList.add('open');
     settingsBackdrop.setAttribute('aria-hidden', 'false');
@@ -218,6 +221,8 @@ function openSettings() {
 function closeSettings() {
     if (!isSettingsOpen) return;
     isSettingsOpen = false;
+    settingsSheet.style.transform = '';
+    settingsSheet.classList.remove('dragging');
     document.body.classList.remove('settings-open');
     settingsBackdrop.classList.remove('open');
     settingsBackdrop.setAttribute('aria-hidden', 'true');
@@ -233,6 +238,77 @@ settingsCloseBtn.addEventListener('click', closeSettings);
 settingsBackdrop.addEventListener('click', (e) => {
     if (e.target === settingsBackdrop) closeSettings();
 });
+
+// 60fps swipe-down gesture to close settings sheet
+let stSwipeStartY = 0;
+let stSwipeStartTime = 0;
+let stSwipeDeltaY = 0;
+let stSwipeActive = false;
+let stSwipeDragging = false;
+let stSwipeRafId = null;
+
+function renderSettingsSwipeFrame() {
+    stSwipeRafId = null;
+    if (!stSwipeDragging) return;
+    const dy = Math.max(0, stSwipeDeltaY);
+    settingsSheet.style.transform = `translate3d(0, ${dy}px, 0)`;
+}
+
+settingsSheet.addEventListener('touchstart', (e) => {
+    if (!isSettingsOpen || e.touches.length !== 1) return;
+    if (settingsSheet.scrollTop > 0) return;
+    stSwipeStartY = e.touches[0].clientY;
+    stSwipeStartTime = Date.now();
+    stSwipeDeltaY = 0;
+    stSwipeActive = true;
+    stSwipeDragging = false;
+}, { passive: true });
+
+settingsSheet.addEventListener('touchmove', (e) => {
+    if (!stSwipeActive) return;
+    const dy = e.touches[0].clientY - stSwipeStartY;
+    if (!stSwipeDragging) {
+        if (dy < 8) {
+            if (dy < -8) stSwipeActive = false;
+            return;
+        }
+        if (settingsSheet.scrollTop > 0) {
+            stSwipeActive = false;
+            return;
+        }
+        stSwipeDragging = true;
+        settingsSheet.classList.add('dragging');
+    }
+    if (e.cancelable) e.preventDefault();
+    stSwipeDeltaY = Math.max(0, dy);
+    if (stSwipeRafId === null) {
+        stSwipeRafId = requestAnimationFrame(renderSettingsSwipeFrame);
+    }
+}, { passive: false });
+
+function endSettingsSwipe() {
+    if (!stSwipeActive) return;
+    stSwipeActive = false;
+    if (stSwipeRafId !== null) {
+        cancelAnimationFrame(stSwipeRafId);
+        stSwipeRafId = null;
+    }
+    if (!stSwipeDragging) return;
+    stSwipeDragging = false;
+    settingsSheet.classList.remove('dragging');
+
+    const elapsed = Math.max(1, Date.now() - stSwipeStartTime);
+    const vy = stSwipeDeltaY / elapsed;
+    if (stSwipeDeltaY > 80 || vy > 0.5) {
+        haptic('light');
+        closeSettings();
+    } else {
+        settingsSheet.style.transform = '';
+    }
+}
+
+settingsSheet.addEventListener('touchend', endSettingsSwipe);
+settingsSheet.addEventListener('touchcancel', endSettingsSwipe);
 
 accentPalette.addEventListener('click', (e) => {
     const btn = e.target.closest('.accent-swatch');
