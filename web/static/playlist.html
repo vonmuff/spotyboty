@@ -12,7 +12,12 @@
     <div id="headerEl" class="header">
         <div class="header-top">
             <h1>🎵 Мой плейлист</h1>
-            <span class="track-counter" id="trackCount">0 треков</span>
+            <div class="header-right">
+                <span class="track-counter" id="trackCount">0 треков</span>
+                <button id="settingsBtn" class="header-icon-btn" type="button" title="Настройки" aria-label="Настройки">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M19.14 12.94c.04-.31.06-.63.06-.94 0-.31-.02-.63-.06-.94l2.03-1.58a.49.49 0 0 0 .12-.61l-1.92-3.32a.49.49 0 0 0-.59-.22l-2.39.96a7.03 7.03 0 0 0-1.62-.94l-.36-2.54a.484.484 0 0 0-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96a.49.49 0 0 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.04.31-.06.63-.06.94s.02.63.06.94l-2.03 1.58a.49.49 0 0 0-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6A3.6 3.6 0 1 1 12 8.4a3.6 3.6 0 0 1 0 7.2z"/></svg>
+                </button>
+            </div>
         </div>
         <input type="text" id="searchInput" class="search-box" placeholder="Поиск по названию или автору...">
     </div>
@@ -131,6 +136,79 @@
     <button id="scrollTopBtn" class="scroll-top-btn" type="button" title="Наверх" aria-label="Наверх">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M7.41 15.41L12 10.83l4.59 4.58L18 14l-6-6-6 6z"/></svg>
     </button>
+
+    <div id="settingsBackdrop" class="settings-backdrop" aria-hidden="true">
+        <div id="settingsSheet" class="settings-sheet" role="dialog" aria-modal="true" aria-label="Настройки">
+            <div class="settings-handle"></div>
+            <div class="settings-header">
+                <h2>⚙️ Настройки</h2>
+                <button id="settingsCloseBtn" class="header-icon-btn" type="button" aria-label="Закрыть">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+                </button>
+            </div>
+
+            <div class="settings-section">
+                <div class="settings-label">Акцентный цвет</div>
+                <div id="accentPalette" class="accent-palette">
+                    <button class="accent-swatch" data-accent="spotify" style="--swatch:#1db954" title="Spotify" type="button"></button>
+                    <button class="accent-swatch" data-accent="telegram" style="--swatch:var(--tg-theme-button-color, #2ea6ff)" title="Telegram" type="button"></button>
+                    <button class="accent-swatch" data-accent="purple" style="--swatch:#a855f7" title="Фиолетовый" type="button"></button>
+                    <button class="accent-swatch" data-accent="pink" style="--swatch:#ec4899" title="Розовый" type="button"></button>
+                    <button class="accent-swatch" data-accent="orange" style="--swatch:#f97316" title="Оранжевый" type="button"></button>
+                    <button class="accent-swatch" data-accent="cyan" style="--swatch:#06b6d4" title="Бирюзовый" type="button"></button>
+                </div>
+            </div>
+
+            <div class="settings-section">
+                <div class="settings-label">Полноэкранный плеер</div>
+                <div id="fpThemeSegment" class="segmented-control">
+                    <button class="seg-btn" data-fp-theme="auto" type="button">Авто</button>
+                    <button class="seg-btn" data-fp-theme="dark" type="button">Тёмный</button>
+                    <button class="seg-btn" data-fp-theme="light" type="button">Светлый</button>
+                </div>
+            </div>
+
+            <div class="settings-section">
+                <div class="settings-label">Интерфейс и поведение</div>
+                <div class="settings-list">
+                    <label class="setting-row">
+                        <span class="setting-text">
+                            <span class="setting-title">Анимированный эквалайзер</span>
+                            <span class="setting-desc">Столбики поверх обложки активного трека</span>
+                        </span>
+                        <input type="checkbox" id="optEqualizer" class="toggle-input">
+                        <span class="toggle-switch"></span>
+                    </label>
+                    <label class="setting-row">
+                        <span class="setting-text">
+                            <span class="setting-title">Размытый фон обложки</span>
+                            <span class="setting-desc">Динамическая подсветка в полноэкранном плеере</span>
+                        </span>
+                        <input type="checkbox" id="optAmbientBg" class="toggle-input">
+                        <span class="toggle-switch"></span>
+                    </label>
+                    <label class="setting-row">
+                        <span class="setting-text">
+                            <span class="setting-title">Автопрокрутка к треку</span>
+                            <span class="setting-desc">Плавно докручивать список при переключении</span>
+                        </span>
+                        <input type="checkbox" id="optAutoScroll" class="toggle-input">
+                        <span class="toggle-switch"></span>
+                    </label>
+                    <label class="setting-row">
+                        <span class="setting-text">
+                            <span class="setting-title">Виброотклик (Haptic)</span>
+                            <span class="setting-desc">Тактильная отдача при нажатиях на телефоне</span>
+                        </span>
+                        <input type="checkbox" id="optHaptic" class="toggle-input">
+                        <span class="toggle-switch"></span>
+                    </label>
+                </div>
+            </div>
+
+            <button id="settingsResetBtn" class="settings-reset-btn" type="button">Сбросить настройки</button>
+        </div>
+    </div>
 
     <div id="undoToast" class="undo-toast" role="status" aria-live="polite">
         <span id="undoToastText" class="undo-toast-text">Трек удалён</span>

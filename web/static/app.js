@@ -2,12 +2,60 @@ const tg = window.Telegram.WebApp;
 tg.ready();
 tg.expand();
 
+const SETTINGS_STORAGE_KEY = 'spotyboty_settings_v1';
+
+const ACCENT_PRESETS = {
+    spotify: { accent: '#1db954', hover: '#1ed760' },
+    telegram: { accent: 'var(--tg-theme-button-color, #2ea6ff)', hover: 'color-mix(in srgb, var(--tg-theme-button-color, #2ea6ff) 85%, #ffffff 15%)' },
+    purple: { accent: '#a855f7', hover: '#c084fc' },
+    pink: { accent: '#ec4899', hover: '#f472b6' },
+    orange: { accent: '#f97316', hover: '#fb923c' },
+    cyan: { accent: '#06b6d4', hover: '#22d3ee' },
+};
+
+const DEFAULT_SETTINGS = {
+    accent: 'spotify',
+    fpTheme: 'auto', // 'auto' | 'dark' | 'light'
+    equalizer: true,
+    ambientBg: true,
+    autoScroll: true,
+    haptic: true,
+};
+
+function loadUserSettings() {
+    try {
+        const raw = localStorage.getItem(SETTINGS_STORAGE_KEY);
+        if (!raw) return { ...DEFAULT_SETTINGS };
+        return { ...DEFAULT_SETTINGS, ...JSON.parse(raw) };
+    } catch (e) {
+        return { ...DEFAULT_SETTINGS };
+    }
+}
+
+let userSettings = loadUserSettings();
+let isSettingsOpen = false;
+
+function saveUserSettings() {
+    try {
+        localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(userSettings));
+    } catch (e) {}
+}
+
+function getEffectiveFullPlayerTheme() {
+    if (userSettings.fpTheme === 'dark' || userSettings.fpTheme === 'light') {
+        return userSettings.fpTheme;
+    }
+    return tg.colorScheme || 'dark';
+}
+
 function applyTelegramTheme() {
     const scheme = tg.colorScheme || 'dark';
+    const fpTheme = getEffectiveFullPlayerTheme();
     document.documentElement.dataset.theme = scheme;
+    document.documentElement.dataset.fpTheme = fpTheme;
     const bgColor = tg.themeParams?.bg_color || (scheme === 'light' ? '#ffffff' : '#0f0f13');
     try {
-        if (isFullPlayerOpen && scheme !== 'light') {
+        if (isFullPlayerOpen && fpTheme !== 'light') {
             tg.setHeaderColor?.('#0f0f13');
             tg.setBackgroundColor?.('#0f0f13');
         } else {
@@ -15,6 +63,15 @@ function applyTelegramTheme() {
             tg.setBackgroundColor?.(bgColor);
         }
     } catch (e) {}
+}
+
+function applyUserSettings() {
+    const preset = ACCENT_PRESETS[userSettings.accent] || ACCENT_PRESETS.spotify;
+    document.documentElement.style.setProperty('--accent', preset.accent);
+    document.documentElement.style.setProperty('--accent-hover', preset.hover);
+    document.body.classList.toggle('no-equalizer', !userSettings.equalizer);
+    document.body.classList.toggle('no-ambient-bg', !userSettings.ambientBg);
+    applyTelegramTheme();
 }
 
 const initData = tg.initData || '';
@@ -31,6 +88,7 @@ let isFullPlayerOpen = false;
 let isSwitchingTrack = false;
 
 function haptic(style = 'light') {
+    if (!userSettings.haptic) return;
     try {
         tg.HapticFeedback?.impactOccurred(style);
     } catch (e) {}
@@ -120,6 +178,115 @@ const fpRepeatBtn = document.getElementById('fpRepeatBtn');
 const undoToast = document.getElementById('undoToast');
 const undoToastText = document.getElementById('undoToastText');
 const undoDeleteBtn = document.getElementById('undoDeleteBtn');
+const settingsBtn = document.getElementById('settingsBtn');
+const settingsBackdrop = document.getElementById('settingsBackdrop');
+const settingsCloseBtn = document.getElementById('settingsCloseBtn');
+const accentPalette = document.getElementById('accentPalette');
+const fpThemeSegment = document.getElementById('fpThemeSegment');
+const optEqualizer = document.getElementById('optEqualizer');
+const optAmbientBg = document.getElementById('optAmbientBg');
+const optAutoScroll = document.getElementById('optAutoScroll');
+const optHaptic = document.getElementById('optHaptic');
+const settingsResetBtn = document.getElementById('settingsResetBtn');
+
+function syncSettingsUI() {
+    accentPalette.querySelectorAll('.accent-swatch').forEach((btn) => {
+        btn.classList.toggle('active', btn.dataset.accent === userSettings.accent);
+    });
+    fpThemeSegment.querySelectorAll('.seg-btn').forEach((btn) => {
+        btn.classList.toggle('active', btn.dataset.fpTheme === userSettings.fpTheme);
+    });
+    optEqualizer.checked = Boolean(userSettings.equalizer);
+    optAmbientBg.checked = Boolean(userSettings.ambientBg);
+    optAutoScroll.checked = Boolean(userSettings.autoScroll);
+    optHaptic.checked = Boolean(userSettings.haptic);
+}
+
+function openSettings() {
+    if (isSettingsOpen) return;
+    isSettingsOpen = true;
+    syncSettingsUI();
+    settingsBackdrop.classList.add('open');
+    settingsBackdrop.setAttribute('aria-hidden', 'false');
+    haptic('light');
+    try {
+        tg.BackButton?.show();
+    } catch (e) {}
+}
+
+function closeSettings() {
+    if (!isSettingsOpen) return;
+    isSettingsOpen = false;
+    settingsBackdrop.classList.remove('open');
+    settingsBackdrop.setAttribute('aria-hidden', 'true');
+    if (!isFullPlayerOpen) {
+        try {
+            tg.BackButton?.hide();
+        } catch (e) {}
+    }
+}
+
+settingsBtn.addEventListener('click', openSettings);
+settingsCloseBtn.addEventListener('click', closeSettings);
+settingsBackdrop.addEventListener('click', (e) => {
+    if (e.target === settingsBackdrop) closeSettings();
+});
+
+accentPalette.addEventListener('click', (e) => {
+    const btn = e.target.closest('.accent-swatch');
+    if (!btn) return;
+    userSettings.accent = btn.dataset.accent;
+    saveUserSettings();
+    applyUserSettings();
+    syncSettingsUI();
+    haptic('light');
+});
+
+fpThemeSegment.addEventListener('click', (e) => {
+    const btn = e.target.closest('.seg-btn');
+    if (!btn) return;
+    userSettings.fpTheme = btn.dataset.fpTheme;
+    saveUserSettings();
+    applyUserSettings();
+    syncSettingsUI();
+    haptic('light');
+});
+
+optEqualizer.addEventListener('change', () => {
+    userSettings.equalizer = optEqualizer.checked;
+    saveUserSettings();
+    applyUserSettings();
+    haptic('light');
+});
+
+optAmbientBg.addEventListener('change', () => {
+    userSettings.ambientBg = optAmbientBg.checked;
+    saveUserSettings();
+    applyUserSettings();
+    haptic('light');
+});
+
+optAutoScroll.addEventListener('change', () => {
+    userSettings.autoScroll = optAutoScroll.checked;
+    saveUserSettings();
+    haptic('light');
+});
+
+optHaptic.addEventListener('change', () => {
+    userSettings.haptic = optHaptic.checked;
+    saveUserSettings();
+    if (userSettings.haptic) haptic('light');
+});
+
+settingsResetBtn.addEventListener('click', () => {
+    userSettings = { ...DEFAULT_SETTINGS };
+    saveUserSettings();
+    applyUserSettings();
+    syncSettingsUI();
+    haptic('medium');
+});
+
+applyUserSettings();
 
 let progressRafId = null;
 let pendingDelete = null;
@@ -385,13 +552,18 @@ try {
 
 try {
     tg.BackButton?.onClick(() => {
-        if (isFullPlayerOpen) closeFullPlayer();
+        if (isSettingsOpen) {
+            closeSettings();
+        } else if (isFullPlayerOpen) {
+            closeFullPlayer();
+        }
     });
 } catch (e) {}
 
 document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && isFullPlayerOpen) {
-        closeFullPlayer();
+    if (e.key === 'Escape') {
+        if (isSettingsOpen) closeSettings();
+        else if (isFullPlayerOpen) closeFullPlayer();
     }
 });
 
@@ -673,7 +845,7 @@ function syncActiveTrackInDOM() {
 }
 
 function scrollToActiveTrack() {
-    if (isFullPlayerOpen) return;
+    if (isFullPlayerOpen || !userSettings.autoScroll) return;
     requestAnimationFrame(() => {
         const activeItem = trackListEl.querySelector('.track-item.active');
         if (!activeItem) return;
