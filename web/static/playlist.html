@@ -71,6 +71,22 @@
                 <img id="fpBgImgA" class="fp-bg-img" src="" alt="">
                 <img id="fpBgImgB" class="fp-bg-img" src="" alt="">
             </div>
+            <div class="fp-bg-parallax-layer" aria-hidden="true">
+                <img id="fpBgAltA" class="fp-bg-img" src="" alt="">
+                <img id="fpBgAltB" class="fp-bg-img" src="" alt="">
+            </div>
+            <div class="fp-bg-mesh" aria-hidden="true">
+                <span class="mesh-orb orb-1"></span>
+                <span class="mesh-orb orb-2"></span>
+                <span class="mesh-orb orb-3"></span>
+                <span class="mesh-orb orb-4"></span>
+            </div>
+            <div class="fp-bg-aurora" aria-hidden="true">
+                <span class="aurora-wave wave-1"></span>
+                <span class="aurora-wave wave-2"></span>
+                <span class="aurora-wave wave-3"></span>
+            </div>
+            <canvas id="fpBokehCanvas" class="fp-bg-bokeh" aria-hidden="true"></canvas>
         </div>
         <div class="fp-content">
             <div>
@@ -85,6 +101,7 @@
             </div>
 
             <div class="fp-art-wrap">
+                <div class="fp-art-halo" aria-hidden="true"></div>
                 <div id="fpArtBox" class="fp-art-box">
                     <span id="fpCoverFallback" class="fp-art-fallback">🎵</span>
                     <img id="fpCoverA" src="" alt="">
@@ -246,7 +263,19 @@
                 </div>
 
                 <div class="settings-section">
-                    <div class="settings-label">Анимация фона плеера</div>
+                    <div class="settings-label">Стиль фона плеера</div>
+                    <div id="ambientStyleSegment" class="segmented-control segmented-3-grid">
+                        <button class="seg-btn" data-ambient-style="mesh" type="button">🌌 Меш</button>
+                        <button class="seg-btn" data-ambient-style="aurora" type="button">🌊 Сияние</button>
+                        <button class="seg-btn" data-ambient-style="bokeh" type="button">✨ Боке</button>
+                        <button class="seg-btn" data-ambient-style="parallax" type="button">🎨 Параллакс</button>
+                        <button class="seg-btn" data-ambient-style="drift" type="button">🌀 Дрейф</button>
+                        <button class="seg-btn" data-ambient-style="static" type="button">🖼 Статика</button>
+                    </div>
+                </div>
+
+                <div class="settings-section">
+                    <div class="settings-label">Интенсивность анимации фона</div>
                     <div id="ambientMotionSegment" class="segmented-control segmented-4">
                         <button class="seg-btn" data-ambient-motion="off" type="button">Выкл</button>
                         <button class="seg-btn" data-ambient-motion="soft" type="button">Мягкая</button>
@@ -263,6 +292,22 @@
                                 <span class="setting-desc">Динамическая подсветка в полноэкранном плеере</span>
                             </span>
                             <input type="checkbox" id="optAmbientBg" class="toggle-input">
+                            <span class="toggle-switch"></span>
+                        </label>
+                        <label class="setting-row">
+                            <span class="setting-text">
+                                <span class="setting-title">Реакция на бит (Audio-Reactive)</span>
+                                <span class="setting-desc">Фон и подсветка пульсируют в такт басам</span>
+                            </span>
+                            <input type="checkbox" id="optAudioReactive" class="toggle-input">
+                            <span class="toggle-switch"></span>
+                        </label>
+                        <label class="setting-row">
+                            <span class="setting-text">
+                                <span class="setting-title">Аура за обложкой (Glow Halo)</span>
+                                <span class="setting-desc">Мягкое цветное свечение вокруг обложки трека</span>
+                            </span>
+                            <input type="checkbox" id="optCoverHalo" class="toggle-input">
                             <span class="toggle-switch"></span>
                         </label>
                         <label class="setting-row">

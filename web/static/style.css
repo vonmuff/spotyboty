@@ -1100,6 +1100,12 @@ body.fp-open {
     color: #ffffff;
     --track-bg: rgba(255, 255, 255, 0.22);
     --thumb-bg: #ffffff;
+    --fp-c1: #1db954;
+    --fp-c2: #2563eb;
+    --fp-c3: #a855f7;
+    --fp-c4: #ec4899;
+    --beat: 0;
+    --ambient-speed: 1;
     display: flex;
     flex-direction: column;
     justify-content: space-between;
@@ -1153,7 +1159,24 @@ body.fp-open {
     animation-play-state: paused;
 }
 
-body[data-ambient-motion="off"] .fp-bg-blur-layer {
+body[data-ambient-motion="off"] .full-player {
+    --ambient-speed: 0;
+}
+
+body[data-ambient-motion="soft"] .full-player {
+    --ambient-speed: 1.65;
+}
+
+body[data-ambient-motion="medium"] .full-player {
+    --ambient-speed: 1;
+}
+
+body[data-ambient-motion="vivid"] .full-player {
+    --ambient-speed: 0.62;
+}
+
+body[data-ambient-motion="off"] .fp-bg-blur-layer,
+body[data-ambient-style="static"] .fp-bg-blur-layer {
     animation: none;
     transform: translate3d(0, 0, 0) scale(1.06);
     filter: blur(44px) saturate(1.55) brightness(0.48);
@@ -1171,8 +1194,253 @@ body[data-ambient-motion="vivid"] .fp-bg-blur-layer {
     animation-play-state: paused;
 }
 
-.full-player.open.is-playing .fp-bg-blur-layer {
+/* В режимах mesh / aurora / bokeh базовый размытый слой приглушён и статичен как подложка */
+body[data-ambient-style="mesh"] .fp-bg-blur-layer,
+body[data-ambient-style="aurora"] .fp-bg-blur-layer {
+    animation: none;
+    transform: translate3d(0, 0, 0) scale(1.08);
+    filter: blur(52px) saturate(1.3) brightness(0.32);
+}
+
+body[data-ambient-style="bokeh"] .fp-bg-blur-layer {
+    animation: none;
+    transform: translate3d(0, 0, 0) scale(1.06);
+    filter: blur(44px) saturate(1.45) brightness(0.42);
+}
+
+/* ===== Style 4: Counter-Rotating Parallax ===== */
+.fp-bg-parallax-layer {
+    display: none;
+    position: absolute;
+    top: -170px;
+    left: -170px;
+    width: calc(100% + 340px);
+    height: calc(100% + 340px);
+    filter: blur(52px) saturate(2.1) brightness(0.6);
+    mix-blend-mode: screen;
+    opacity: 0.65;
+    transform: translate3d(0, 0, 0) scale(1.22);
+    will-change: transform;
+    animation: ambientParallaxCounter calc(14s * var(--ambient-speed, 1)) ease-in-out infinite;
+    animation-play-state: paused;
+}
+
+body[data-ambient-style="parallax"] .fp-bg-parallax-layer {
+    display: block;
+}
+
+:root[data-fp-theme="light"] .fp-bg-parallax-layer {
+    mix-blend-mode: multiply;
+    opacity: 0.36;
+}
+
+/* ===== Style 1: Liquid Mesh (Apple Music style) ===== */
+.fp-bg-mesh {
+    display: none;
+    position: absolute;
+    inset: -20%;
+    pointer-events: none;
+    transform: scale(calc(1 + var(--beat, 0) * 0.14));
+    transition: transform 0.08s linear;
+    will-change: transform;
+}
+
+body[data-ambient-style="mesh"] .fp-bg-mesh {
+    display: block;
+}
+
+.mesh-orb {
+    position: absolute;
+    border-radius: 50%;
+    filter: blur(62px);
+    mix-blend-mode: screen;
+    opacity: 0.78;
+    will-change: transform;
+    transition: background 0.9s ease;
+    animation-play-state: paused;
+}
+
+:root[data-fp-theme="light"] .mesh-orb {
+    mix-blend-mode: normal;
+    opacity: 0.56;
+}
+
+body[data-ambient-motion="vivid"] .mesh-orb {
+    opacity: 0.92;
+}
+
+body[data-ambient-motion="soft"] .mesh-orb {
+    opacity: 0.62;
+}
+
+.mesh-orb.orb-1 {
+    width: 78%;
+    height: 56%;
+    top: -8%;
+    left: -12%;
+    background: radial-gradient(circle, var(--fp-c1) 0%, transparent 72%);
+    animation: meshOrb1 calc(11s * var(--ambient-speed, 1)) ease-in-out infinite;
+}
+
+.mesh-orb.orb-2 {
+    width: 74%;
+    height: 54%;
+    top: 18%;
+    right: -16%;
+    background: radial-gradient(circle, var(--fp-c2) 0%, transparent 72%);
+    animation: meshOrb2 calc(14s * var(--ambient-speed, 1)) ease-in-out infinite;
+}
+
+.mesh-orb.orb-3 {
+    width: 82%;
+    height: 58%;
+    bottom: -10%;
+    left: -8%;
+    background: radial-gradient(circle, var(--fp-c3) 0%, transparent 72%);
+    animation: meshOrb3 calc(16s * var(--ambient-speed, 1)) ease-in-out infinite;
+}
+
+.mesh-orb.orb-4 {
+    width: 68%;
+    height: 48%;
+    bottom: 12%;
+    right: -10%;
+    background: radial-gradient(circle, var(--fp-c4) 0%, transparent 72%);
+    animation: meshOrb4 calc(13s * var(--ambient-speed, 1)) ease-in-out infinite;
+}
+
+/* ===== Style 3: Aurora Waves ===== */
+.fp-bg-aurora {
+    display: none;
+    position: absolute;
+    inset: -25%;
+    pointer-events: none;
+    transform: scale(calc(1 + var(--beat, 0) * 0.12));
+    transition: transform 0.08s linear;
+    will-change: transform;
+}
+
+body[data-ambient-style="aurora"] .fp-bg-aurora {
+    display: block;
+}
+
+.aurora-wave {
+    position: absolute;
+    left: -25%;
+    width: 150%;
+    height: 42%;
+    border-radius: 50%;
+    filter: blur(50px);
+    mix-blend-mode: screen;
+    opacity: 0.72;
+    will-change: transform;
+    transition: background 0.9s ease;
+    animation-play-state: paused;
+}
+
+:root[data-fp-theme="light"] .aurora-wave {
+    mix-blend-mode: normal;
+    opacity: 0.5;
+}
+
+.aurora-wave.wave-1 {
+    top: 6%;
+    background: linear-gradient(115deg, transparent 8%, var(--fp-c1) 35%, var(--fp-c2) 65%, transparent 92%);
+    animation: auroraWave1 calc(10s * var(--ambient-speed, 1)) ease-in-out infinite;
+}
+
+.aurora-wave.wave-2 {
+    top: 34%;
+    background: linear-gradient(70deg, transparent 8%, var(--fp-c2) 32%, var(--fp-c3) 68%, transparent 92%);
+    animation: auroraWave2 calc(13s * var(--ambient-speed, 1)) ease-in-out infinite;
+}
+
+.aurora-wave.wave-3 {
+    bottom: 6%;
+    background: linear-gradient(125deg, transparent 10%, var(--fp-c3) 38%, var(--fp-c4) 68%, transparent 92%);
+    animation: auroraWave3 calc(15s * var(--ambient-speed, 1)) ease-in-out infinite;
+}
+
+/* ===== Style 4 (Canvas): Floating Bokeh ===== */
+.fp-bg-bokeh {
+    display: none;
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+}
+
+body[data-ambient-style="bokeh"] .fp-bg-bokeh {
+    display: block;
+}
+
+/* ===== Play-state control (runs ONLY when player open + playing + motion != off) ===== */
+.full-player.open.is-playing .fp-bg-blur-layer,
+.full-player.open.is-playing .fp-bg-parallax-layer,
+.full-player.open.is-playing .mesh-orb,
+.full-player.open.is-playing .aurora-wave {
     animation-play-state: running;
+}
+
+body[data-ambient-motion="off"] .full-player.open.is-playing .fp-bg-parallax-layer,
+body[data-ambient-motion="off"] .full-player.open.is-playing .mesh-orb,
+body[data-ambient-motion="off"] .full-player.open.is-playing .aurora-wave {
+    animation-play-state: paused;
+}
+
+@keyframes ambientParallaxCounter {
+    0% {
+        transform: translate3d(0px, 0px, 0) scale(1.24) rotate(0deg);
+    }
+    33% {
+        transform: translate3d(-56px, 44px, 0) scale(1.36) rotate(-14deg);
+    }
+    66% {
+        transform: translate3d(48px, -36px, 0) scale(1.18) rotate(11deg);
+    }
+    100% {
+        transform: translate3d(0px, 0px, 0) scale(1.24) rotate(0deg);
+    }
+}
+
+@keyframes meshOrb1 {
+    0%, 100% { transform: translate3d(0%, 0%, 0) scale(1); }
+    33% { transform: translate3d(28%, 18%, 0) scale(1.18); }
+    66% { transform: translate3d(10%, 34%, 0) scale(0.92); }
+}
+
+@keyframes meshOrb2 {
+    0%, 100% { transform: translate3d(0%, 0%, 0) scale(1.05); }
+    33% { transform: translate3d(-32%, 22%, 0) scale(0.9); }
+    66% { transform: translate3d(-18%, -20%, 0) scale(1.2); }
+}
+
+@keyframes meshOrb3 {
+    0%, 100% { transform: translate3d(0%, 0%, 0) scale(1); }
+    33% { transform: translate3d(30%, -26%, 0) scale(1.16); }
+    66% { transform: translate3d(12%, -10%, 0) scale(0.94); }
+}
+
+@keyframes meshOrb4 {
+    0%, 100% { transform: translate3d(0%, 0%, 0) scale(0.96); }
+    33% { transform: translate3d(-26%, -24%, 0) scale(1.22); }
+    66% { transform: translate3d(-34%, 12%, 0) scale(1.04); }
+}
+
+@keyframes auroraWave1 {
+    0%, 100% { transform: translate3d(-6%, 0%, 0) rotate(-10deg) scaleY(1); }
+    50% { transform: translate3d(8%, 14%, 0) rotate(-4deg) scaleY(1.28); }
+}
+
+@keyframes auroraWave2 {
+    0%, 100% { transform: translate3d(6%, 0%, 0) rotate(8deg) scaleY(1.1); }
+    50% { transform: translate3d(-8%, -12%, 0) rotate(14deg) scaleY(0.86); }
+}
+
+@keyframes auroraWave3 {
+    0%, 100% { transform: translate3d(-4%, 4%, 0) rotate(-6deg) scaleY(1); }
+    50% { transform: translate3d(7%, -14%, 0) rotate(-13deg) scaleY(1.24); }
 }
 
 @keyframes ambientBgDriftSoft {
@@ -1314,6 +1582,7 @@ body[data-ambient-motion="vivid"] .fp-bg-blur-layer {
 }
 
 .fp-art-wrap {
+    position: relative;
     flex: 1;
     display: flex;
     align-items: center;
@@ -1322,8 +1591,49 @@ body[data-ambient-motion="vivid"] .fp-bg-blur-layer {
     padding: 8px 0 18px;
 }
 
+/* ===== Style 6: Glow Halo behind cover ===== */
+.fp-art-halo {
+    display: none;
+    position: absolute;
+    width: min(86vw, 350px);
+    aspect-ratio: 1 / 1;
+    border-radius: 50%;
+    background: radial-gradient(circle, var(--fp-c1) 0%, var(--fp-c2) 48%, transparent 74%);
+    filter: blur(44px) saturate(1.4);
+    opacity: calc(0.45 + var(--beat, 0) * 0.42);
+    transform: scale(calc(0.94 + var(--beat, 0) * 0.22));
+    transition: background 0.9s ease, transform 0.08s linear, opacity 0.1s linear;
+    pointer-events: none;
+    z-index: 0;
+    will-change: transform, opacity;
+}
+
+body.cover-halo .fp-art-halo {
+    display: block;
+}
+
+body.cover-halo .full-player.open.is-playing .fp-art-halo {
+    animation: haloBreathe 4.2s ease-in-out infinite;
+}
+
+body.cover-halo.audio-reactive .full-player.open.is-playing .fp-art-halo {
+    animation: none;
+}
+
+@keyframes haloBreathe {
+    0%, 100% {
+        transform: scale(0.94);
+        opacity: 0.44;
+    }
+    50% {
+        transform: scale(1.08);
+        opacity: 0.72;
+    }
+}
+
 .fp-art-box {
     position: relative;
+    z-index: 1;
     width: min(78vw, 320px);
     max-height: 100%;
     aspect-ratio: 1 / 1;
@@ -1546,7 +1856,11 @@ body.no-equalizer .eq-overlay {
     display: none !important;
 }
 
-body.no-ambient-bg .fp-bg-blur-layer {
+body.no-ambient-bg .fp-bg-blur-layer,
+body.no-ambient-bg .fp-bg-parallax-layer,
+body.no-ambient-bg .fp-bg-mesh,
+body.no-ambient-bg .fp-bg-aurora,
+body.no-ambient-bg .fp-bg-bokeh {
     display: none !important;
 }
 
@@ -1684,7 +1998,12 @@ body.reduced-motion .track-swipe-wrap.entering {
     transform: none;
 }
 
-body.reduced-motion .fp-bg-blur-layer {
+body.reduced-motion .fp-bg-blur-layer,
+body.reduced-motion .fp-bg-parallax-layer,
+body.reduced-motion .fp-bg-mesh,
+body.reduced-motion .fp-bg-aurora,
+body.reduced-motion .fp-bg-bokeh,
+body.reduced-motion .fp-art-halo {
     display: none !important;
 }
 
@@ -1874,6 +2193,15 @@ body.settings-open {
 
 .segmented-control.segmented-2 {
     grid-template-columns: repeat(2, 1fr);
+}
+
+.segmented-control.segmented-3-grid {
+    grid-template-columns: repeat(3, 1fr);
+}
+
+.segmented-control.segmented-3-grid .seg-btn {
+    font-size: 12px;
+    padding: 8px 4px;
 }
 
 .segmented-control.segmented-4 {

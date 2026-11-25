@@ -21,7 +21,10 @@ const DEFAULT_SETTINGS = {
     density: 'normal', // 'normal' | 'compact'
     swipeMode: 'playlists', // 'playlists' | 'tracks'
     coverStyle: 'square', // 'square' | 'vinyl'
+    ambientStyle: 'mesh', // 'mesh' | 'aurora' | 'bokeh' | 'parallax' | 'drift' | 'static'
     ambientMotion: 'medium', // 'off' | 'soft' | 'medium' | 'vivid'
+    audioReactive: false,
+    coverHalo: true,
     playbackRate: 1,
     audioFade: true,
     autoNext: true,
@@ -92,7 +95,10 @@ function applyUserSettings() {
     document.documentElement.style.setProperty('--accent-hover', preset.hover);
     document.body.classList.toggle('no-equalizer', !userSettings.equalizer);
     document.body.classList.toggle('no-ambient-bg', !userSettings.ambientBg);
+    document.body.dataset.ambientStyle = userSettings.ambientStyle || 'mesh';
     document.body.dataset.ambientMotion = userSettings.ambientMotion || 'medium';
+    document.body.classList.toggle('audio-reactive', Boolean(userSettings.audioReactive));
+    document.body.classList.toggle('cover-halo', Boolean(userSettings.coverHalo));
     document.body.classList.toggle('hide-send-btn', Boolean(userSettings.hideSendBtn));
     document.body.classList.toggle('hide-delete-btn', Boolean(userSettings.hideDeleteBtn));
     document.body.classList.toggle('compact-list', userSettings.density === 'compact');
@@ -100,6 +106,7 @@ function applyUserSettings() {
     document.body.classList.toggle('no-marquee', !userSettings.marquee);
     document.body.classList.toggle('reduced-motion', Boolean(userSettings.reducedMotion));
     applyTelegramTheme();
+    if (typeof syncAmbientRuntime === 'function') syncAmbientRuntime();
 }
 
 const initData = tg.initData || '';
@@ -242,6 +249,8 @@ const totalTimeEl = document.getElementById('totalTime');
 
 const fullPlayer = document.getElementById('fullPlayer');
 const fpBgImgs = [document.getElementById('fpBgImgA'), document.getElementById('fpBgImgB')];
+const fpBgAlts = [document.getElementById('fpBgAltA'), document.getElementById('fpBgAltB')];
+const fpBokehCanvas = document.getElementById('fpBokehCanvas');
 const fpCollapseBtn = document.getElementById('fpCollapseBtn');
 const fpArtBox = document.getElementById('fpArtBox');
 const fpCovers = [document.getElementById('fpCoverA'), document.getElementById('fpCoverB')];
@@ -276,6 +285,7 @@ const sortSegment = document.getElementById('sortSegment');
 const densitySegment = document.getElementById('densitySegment');
 const swipeModeSegment = document.getElementById('swipeModeSegment');
 const coverStyleSegment = document.getElementById('coverStyleSegment');
+const ambientStyleSegment = document.getElementById('ambientStyleSegment');
 const ambientMotionSegment = document.getElementById('ambientMotionSegment');
 const sleepSegment = document.getElementById('sleepSegment');
 const sleepTimerBadge = document.getElementById('sleepTimerBadge');
@@ -284,6 +294,8 @@ const optAudioFade = document.getElementById('optAudioFade');
 const optAutoNext = document.getElementById('optAutoNext');
 const optEqualizer = document.getElementById('optEqualizer');
 const optAmbientBg = document.getElementById('optAmbientBg');
+const optAudioReactive = document.getElementById('optAudioReactive');
+const optCoverHalo = document.getElementById('optCoverHalo');
 const optHideSendBtn = document.getElementById('optHideSendBtn');
 const optHideDeleteBtn = document.getElementById('optHideDeleteBtn');
 const optDragReorder = document.getElementById('optDragReorder');
@@ -458,6 +470,9 @@ function syncSettingsUI() {
     coverStyleSegment.querySelectorAll('.seg-btn').forEach((btn) => {
         btn.classList.toggle('active', btn.dataset.coverStyle === userSettings.coverStyle);
     });
+    ambientStyleSegment.querySelectorAll('.seg-btn').forEach((btn) => {
+        btn.classList.toggle('active', btn.dataset.ambientStyle === (userSettings.ambientStyle || 'mesh'));
+    });
     ambientMotionSegment.querySelectorAll('.seg-btn').forEach((btn) => {
         btn.classList.toggle('active', btn.dataset.ambientMotion === (userSettings.ambientMotion || 'medium'));
     });
@@ -471,6 +486,8 @@ function syncSettingsUI() {
     optAutoNext.checked = Boolean(userSettings.autoNext);
     optEqualizer.checked = Boolean(userSettings.equalizer);
     optAmbientBg.checked = Boolean(userSettings.ambientBg);
+    optAudioReactive.checked = Boolean(userSettings.audioReactive);
+    optCoverHalo.checked = Boolean(userSettings.coverHalo);
     optHideSendBtn.checked = Boolean(userSettings.hideSendBtn);
     optHideDeleteBtn.checked = Boolean(userSettings.hideDeleteBtn);
     optDragReorder.checked = Boolean(userSettings.dragReorder);
@@ -648,6 +665,19 @@ coverStyleSegment.addEventListener('click', (e) => {
     haptic('light');
 });
 
+ambientStyleSegment.addEventListener('click', (e) => {
+    const btn = e.target.closest('.seg-btn');
+    if (!btn) return;
+    userSettings.ambientStyle = btn.dataset.ambientStyle || 'mesh';
+    if (!userSettings.ambientBg) {
+        userSettings.ambientBg = true;
+    }
+    saveUserSettings();
+    applyUserSettings();
+    syncSettingsUI();
+    haptic('light');
+});
+
 ambientMotionSegment.addEventListener('click', (e) => {
     const btn = e.target.closest('.seg-btn');
     if (!btn) return;
@@ -700,6 +730,20 @@ optEqualizer.addEventListener('change', () => {
 
 optAmbientBg.addEventListener('change', () => {
     userSettings.ambientBg = optAmbientBg.checked;
+    saveUserSettings();
+    applyUserSettings();
+    haptic('light');
+});
+
+optAudioReactive.addEventListener('change', () => {
+    userSettings.audioReactive = optAudioReactive.checked;
+    saveUserSettings();
+    applyUserSettings();
+    haptic('light');
+});
+
+optCoverHalo.addEventListener('change', () => {
+    userSettings.coverHalo = optCoverHalo.checked;
     saveUserSettings();
     applyUserSettings();
     haptic('light');
@@ -2235,12 +2279,14 @@ function openFullPlayer() {
         document.body.classList.add('fp-open');
         applyTelegramTheme();
         refreshAllMarquees();
+        syncAmbientRuntime();
     }, 370);
 }
 
 function closeFullPlayer() {
     if (!isFullPlayerOpen) return;
     isFullPlayerOpen = false;
+    syncAmbientRuntime();
     if (fpOpenTimer) {
         clearTimeout(fpOpenTimer);
         fpOpenTimer = null;
@@ -2306,6 +2352,289 @@ function hideLayerInstantly(el) {
     el.style.transition = '';
 }
 
+// ===== Cover Palette Extraction, Bokeh Canvas & Web Audio Beat Analyser =====
+const DEFAULT_AMBIENT_PALETTE = [
+    [29, 185, 84],
+    [37, 99, 235],
+    [168, 85, 247],
+    [236, 72, 153],
+];
+const coverPaletteCache = new Map();
+let currentAmbientPalette = DEFAULT_AMBIENT_PALETTE.map(c => [...c]);
+
+function boostColorVividness(r, g, b) {
+    const max = Math.max(r, g, b);
+    const min = Math.min(r, g, b);
+    const avg = (r + g + b) / 3;
+    const sat = max === 0 ? 0 : (max - min) / max;
+    const boost = sat < 0.35 ? 1.45 : 1.18;
+    const nr = Math.min(255, Math.max(0, Math.round(avg + (r - avg) * boost)));
+    const ng = Math.min(255, Math.max(0, Math.round(avg + (g - avg) * boost)));
+    const nb = Math.min(255, Math.max(0, Math.round(avg + (b - avg) * boost)));
+    // Поднимаем слишком тёмные оттенки, чтобы свечение всегда было видно
+    const lum = 0.299 * nr + 0.587 * ng + 0.114 * nb;
+    if (lum < 75 && lum > 1) {
+        const k = 90 / lum;
+        return [Math.min(255, Math.round(nr * k)), Math.min(255, Math.round(ng * k)), Math.min(255, Math.round(nb * k))];
+    }
+    return [nr, ng, nb];
+}
+
+function applyAmbientPalette(palette) {
+    currentAmbientPalette = palette;
+    for (let i = 0; i < 4; i++) {
+        const [r, g, b] = palette[i] || DEFAULT_AMBIENT_PALETTE[i];
+        fullPlayer.style.setProperty(`--fp-c${i + 1}`, `rgb(${r}, ${g}, ${b})`);
+    }
+}
+
+function extractCoverPalette(img, coverUrl) {
+    if (coverPaletteCache.has(coverUrl)) {
+        applyAmbientPalette(coverPaletteCache.get(coverUrl));
+        return;
+    }
+    try {
+        const canvas = document.createElement('canvas');
+        canvas.width = 16;
+        canvas.height = 16;
+        const ctx = canvas.getContext('2d', { willReadFrequently: true });
+        if (!ctx) return;
+        ctx.drawImage(img, 0, 0, 16, 16);
+        const data = ctx.getImageData(0, 0, 16, 16).data;
+
+        const candidates = [];
+        for (let i = 0; i < data.length; i += 4) {
+            const r = data[i], g = data[i + 1], b = data[i + 2], a = data[i + 3];
+            if (a < 180) continue;
+            const max = Math.max(r, g, b);
+            const min = Math.min(r, g, b);
+            const lum = 0.299 * r + 0.587 * g + 0.114 * b;
+            if (lum < 22 || lum > 242) continue;
+            const sat = max === 0 ? 0 : (max - min) / max;
+            const score = sat * 2.2 + (1 - Math.abs(lum - 135) / 135);
+            candidates.push({ r, g, b, score });
+        }
+
+        candidates.sort((a, b) => b.score - a.score);
+        const picked = [];
+        for (const c of candidates) {
+            const distinct = picked.every(p => {
+                const dr = p[0] - c.r, dg = p[1] - c.g, db = p[2] - c.b;
+                return (dr * dr + dg * dg + db * db) > 3600;
+            });
+            if (distinct) {
+                picked.push(boostColorVividness(c.r, c.g, c.b));
+                if (picked.length === 4) break;
+            }
+        }
+
+        while (picked.length < 4) {
+            if (picked.length > 0) {
+                const base = picked[picked.length - 1];
+                picked.push([base[2], base[0], base[1]]);
+            } else {
+                picked.push([...DEFAULT_AMBIENT_PALETTE[picked.length]]);
+            }
+        }
+
+        coverPaletteCache.set(coverUrl, picked);
+        if (coverPaletteCache.size > 60) {
+            const firstKey = coverPaletteCache.keys().next().value;
+            coverPaletteCache.delete(firstKey);
+        }
+        applyAmbientPalette(picked);
+    } catch (e) {
+        applyAmbientPalette(DEFAULT_AMBIENT_PALETTE);
+    }
+}
+
+let audioCtx = null;
+let audioAnalyser = null;
+let audioSourceNode = null;
+let audioFreqData = null;
+let smoothedBeat = 0;
+
+function ensureAudioAnalyser() {
+    if (audioAnalyser) {
+        if (audioCtx && audioCtx.state === 'suspended') {
+            audioCtx.resume().catch(() => {});
+        }
+        return true;
+    }
+    try {
+        const AudioCtx = window.AudioContext || window.webkitAudioContext;
+        if (!AudioCtx) return false;
+        audioCtx = new AudioCtx();
+        audioAnalyser = audioCtx.createAnalyser();
+        audioAnalyser.fftSize = 256;
+        audioAnalyser.smoothingTimeConstant = 0.78;
+        audioSourceNode = audioCtx.createMediaElementSource(audio);
+        audioSourceNode.connect(audioAnalyser);
+        audioAnalyser.connect(audioCtx.destination);
+        audioFreqData = new Uint8Array(audioAnalyser.frequencyBinCount);
+        if (audioCtx.state === 'suspended') {
+            audioCtx.resume().catch(() => {});
+        }
+        return true;
+    } catch (e) {
+        return false;
+    }
+}
+
+const BOKEH_COUNT = 26;
+let bokehParticles = [];
+let ambientRafId = null;
+let lastAmbientFrameTime = 0;
+
+function initBokehParticles(w, h) {
+    bokehParticles = Array.from({ length: BOKEH_COUNT }, (_, idx) => ({
+        x: Math.random() * w,
+        y: Math.random() * h,
+        r: 16 + Math.random() * 44,
+        vy: -(0.22 + Math.random() * 0.55),
+        vx: (Math.random() - 0.5) * 0.3,
+        phase: Math.random() * Math.PI * 2,
+        twinkleSpeed: 0.008 + Math.random() * 0.018,
+        alpha: 0.16 + Math.random() * 0.28,
+        colorIdx: idx % 4,
+    }));
+}
+
+function resizeBokehCanvas() {
+    if (!fpBokehCanvas) return;
+    const dpr = Math.min(window.devicePixelRatio || 1, 1.5);
+    const w = fpBokehCanvas.clientWidth || window.innerWidth;
+    const h = fpBokehCanvas.clientHeight || window.innerHeight;
+    if (fpBokehCanvas.width !== Math.round(w * dpr) || fpBokehCanvas.height !== Math.round(h * dpr)) {
+        fpBokehCanvas.width = Math.round(w * dpr);
+        fpBokehCanvas.height = Math.round(h * dpr);
+        initBokehParticles(w, h);
+    }
+}
+
+window.addEventListener('resize', () => {
+    if (isFullPlayerOpen && userSettings.ambientStyle === 'bokeh') {
+        resizeBokehCanvas();
+    }
+});
+
+function stopAmbientRuntime() {
+    if (ambientRafId !== null) {
+        cancelAnimationFrame(ambientRafId);
+        ambientRafId = null;
+    }
+    smoothedBeat = 0;
+    fullPlayer.style.setProperty('--beat', '0');
+}
+
+function syncAmbientRuntime() {
+    const style = userSettings.ambientStyle || 'mesh';
+    const motion = userSettings.ambientMotion || 'medium';
+    const bgEnabled = Boolean(userSettings.ambientBg) && !userSettings.reducedMotion;
+    const canRun = isFullPlayerOpen && !audio.paused && !document.hidden && !userSettings.reducedMotion;
+    const needsBokeh = canRun && bgEnabled && style === 'bokeh' && motion !== 'off';
+    const needsBeat = canRun && Boolean(userSettings.audioReactive) && (bgEnabled || Boolean(userSettings.coverHalo));
+
+    if (!needsBokeh && !needsBeat) {
+        stopAmbientRuntime();
+        return;
+    }
+
+    if (needsBeat) {
+        ensureAudioAnalyser();
+    }
+    if (needsBokeh) {
+        resizeBokehCanvas();
+    }
+
+    if (ambientRafId !== null) return;
+    lastAmbientFrameTime = performance.now();
+
+    const speedMul = motion === 'soft' ? 0.55 : (motion === 'vivid' ? 1.65 : 1);
+
+    const step = (now) => {
+        const dt = Math.min(48, now - lastAmbientFrameTime) / 16.67;
+        lastAmbientFrameTime = now;
+
+        const curStyle = userSettings.ambientStyle || 'mesh';
+        const curMotion = userSettings.ambientMotion || 'medium';
+        const curBgOn = Boolean(userSettings.ambientBg) && !userSettings.reducedMotion;
+        const active = isFullPlayerOpen && !audio.paused && !document.hidden && !userSettings.reducedMotion;
+        const doBokeh = active && curBgOn && curStyle === 'bokeh' && curMotion !== 'off';
+        const doBeat = active && Boolean(userSettings.audioReactive) && (curBgOn || Boolean(userSettings.coverHalo));
+
+        if (!doBokeh && !doBeat) {
+            stopAmbientRuntime();
+            return;
+        }
+
+        if (doBeat && audioAnalyser && audioFreqData) {
+            audioAnalyser.getByteFrequencyData(audioFreqData);
+            // Басовый диапазон (примерно 40–220 Гц)
+            let bassSum = 0;
+            const bassBins = 8;
+            for (let i = 1; i <= bassBins; i++) {
+                bassSum += audioFreqData[i];
+            }
+            const rawBass = bassSum / (bassBins * 255);
+            const energy = Math.max(0, Math.min(1, (rawBass - 0.28) * 1.9));
+            smoothedBeat = smoothedBeat * 0.72 + energy * 0.28;
+            fullPlayer.style.setProperty('--beat', smoothedBeat.toFixed(3));
+        } else if (smoothedBeat > 0.005) {
+            smoothedBeat *= 0.85;
+            fullPlayer.style.setProperty('--beat', smoothedBeat.toFixed(3));
+        }
+
+        if (doBokeh && fpBokehCanvas) {
+            const ctx = fpBokehCanvas.getContext('2d');
+            if (ctx) {
+                const dpr = Math.min(window.devicePixelRatio || 1, 1.5);
+                const w = fpBokehCanvas.width / dpr;
+                const h = fpBokehCanvas.height / dpr;
+                ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+                ctx.clearRect(0, 0, w, h);
+
+                const beatBoost = doBeat ? smoothedBeat : 0;
+                const mul = (curMotion === 'soft' ? 0.55 : (curMotion === 'vivid' ? 1.65 : 1)) * (1 + beatBoost * 1.4);
+
+                for (const p of bokehParticles) {
+                    p.y += p.vy * mul * dt;
+                    p.phase += p.twinkleSpeed * mul * dt;
+                    p.x += (p.vx + Math.sin(p.phase) * 0.28) * mul * dt;
+
+                    if (p.y < -p.r * 1.5) {
+                        p.y = h + p.r * 1.2;
+                        p.x = Math.random() * w;
+                    }
+                    if (p.x < -p.r * 1.5) p.x = w + p.r;
+                    if (p.x > w + p.r * 1.5) p.x = -p.r;
+
+                    const [r, g, b] = currentAmbientPalette[p.colorIdx] || DEFAULT_AMBIENT_PALETTE[0];
+                    const pulseR = p.r * (1 + beatBoost * 0.35);
+                    const twinkle = 0.65 + 0.35 * Math.sin(p.phase * 1.6);
+                    const a = Math.min(0.75, p.alpha * twinkle * (1 + beatBoost * 0.65));
+
+                    const grad = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, pulseR);
+                    grad.addColorStop(0, `rgba(${r}, ${g}, ${b}, ${a.toFixed(3)})`);
+                    grad.addColorStop(0.55, `rgba(${r}, ${g}, ${b}, ${(a * 0.42).toFixed(3)})`);
+                    grad.addColorStop(1, `rgba(${r}, ${g}, ${b}, 0)`);
+
+                    ctx.fillStyle = grad;
+                    ctx.beginPath();
+                    ctx.arc(p.x, p.y, pulseR, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+            }
+        }
+
+        ambientRafId = requestAnimationFrame(step);
+    };
+
+    ambientRafId = requestAnimationFrame(step);
+}
+
+document.addEventListener('visibilitychange', syncAmbientRuntime);
+
 function crossfadeFullPlayerCover(coverUrl, instantCover = false) {
     const seq = ++fpCoverSeq;
     const prevIdx = fpActiveLayer;
@@ -2315,14 +2644,19 @@ function crossfadeFullPlayerCover(coverUrl, instantCover = false) {
     const nextCover = fpCovers[nextIdx];
     const prevBg = fpBgImgs[prevIdx];
     const nextBg = fpBgImgs[nextIdx];
+    const prevAlt = fpBgAlts[prevIdx];
+    const nextAlt = fpBgAlts[nextIdx];
 
     prevCover.style.zIndex = '1';
     nextCover.style.zIndex = '2';
     prevBg.style.zIndex = '1';
     nextBg.style.zIndex = '2';
+    prevAlt.style.zIndex = '1';
+    nextAlt.style.zIndex = '2';
 
     hideLayerInstantly(nextCover);
     hideLayerInstantly(nextBg);
+    hideLayerInstantly(nextAlt);
 
     const preload = new Image();
     preload.onload = () => {
@@ -2330,6 +2664,8 @@ function crossfadeFullPlayerCover(coverUrl, instantCover = false) {
         fpCoverFallback.style.display = 'none';
         nextCover.src = coverUrl;
         nextBg.src = coverUrl;
+        nextAlt.src = coverUrl;
+        extractCoverPalette(preload, coverUrl);
 
         if (instantCover) {
             // При свайпе сама карточка fpArtBox уже анимирует opacity/transform,
@@ -2348,11 +2684,13 @@ function crossfadeFullPlayerCover(coverUrl, instantCover = false) {
                     nextCover.classList.add('visible');
                 }
                 nextBg.classList.add('visible');
+                nextAlt.classList.add('visible');
                 fpActiveLayer = nextIdx;
                 setTimeout(() => {
                     if (fpActiveLayer === nextIdx) {
                         if (!instantCover) hideLayerInstantly(prevCover);
                         hideLayerInstantly(prevBg);
+                        hideLayerInstantly(prevAlt);
                     }
                 }, 700);
             });
@@ -2723,6 +3061,7 @@ function updatePlayButtons(playing) {
     fpArtBox.classList.toggle('playing', playing);
     fullPlayer.classList.toggle('is-playing', playing);
     fpPlayPauseBtn.classList.toggle('is-playing', playing);
+    syncAmbientRuntime();
     document.querySelectorAll('.eq-overlay').forEach(el => {
         el.classList.toggle('paused', !playing);
     });
