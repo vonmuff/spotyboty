@@ -21,6 +21,7 @@ const DEFAULT_SETTINGS = {
     density: 'normal', // 'normal' | 'compact'
     swipeMode: 'playlists', // 'playlists' | 'tracks'
     coverStyle: 'square', // 'square' | 'vinyl'
+    ambientMotion: 'medium', // 'off' | 'soft' | 'medium' | 'vivid'
     playbackRate: 1,
     audioFade: true,
     autoNext: true,
@@ -91,6 +92,7 @@ function applyUserSettings() {
     document.documentElement.style.setProperty('--accent-hover', preset.hover);
     document.body.classList.toggle('no-equalizer', !userSettings.equalizer);
     document.body.classList.toggle('no-ambient-bg', !userSettings.ambientBg);
+    document.body.dataset.ambientMotion = userSettings.ambientMotion || 'medium';
     document.body.classList.toggle('hide-send-btn', Boolean(userSettings.hideSendBtn));
     document.body.classList.toggle('hide-delete-btn', Boolean(userSettings.hideDeleteBtn));
     document.body.classList.toggle('compact-list', userSettings.density === 'compact');
@@ -274,6 +276,7 @@ const sortSegment = document.getElementById('sortSegment');
 const densitySegment = document.getElementById('densitySegment');
 const swipeModeSegment = document.getElementById('swipeModeSegment');
 const coverStyleSegment = document.getElementById('coverStyleSegment');
+const ambientMotionSegment = document.getElementById('ambientMotionSegment');
 const sleepSegment = document.getElementById('sleepSegment');
 const sleepTimerBadge = document.getElementById('sleepTimerBadge');
 const speedSegment = document.getElementById('speedSegment');
@@ -454,6 +457,9 @@ function syncSettingsUI() {
     });
     coverStyleSegment.querySelectorAll('.seg-btn').forEach((btn) => {
         btn.classList.toggle('active', btn.dataset.coverStyle === userSettings.coverStyle);
+    });
+    ambientMotionSegment.querySelectorAll('.seg-btn').forEach((btn) => {
+        btn.classList.toggle('active', btn.dataset.ambientMotion === (userSettings.ambientMotion || 'medium'));
     });
     sleepSegment.querySelectorAll('.seg-btn').forEach((btn) => {
         btn.classList.toggle('active', btn.dataset.sleep === sleepMode);
@@ -636,6 +642,20 @@ coverStyleSegment.addEventListener('click', (e) => {
     const btn = e.target.closest('.seg-btn');
     if (!btn) return;
     userSettings.coverStyle = btn.dataset.coverStyle;
+    saveUserSettings();
+    applyUserSettings();
+    syncSettingsUI();
+    haptic('light');
+});
+
+ambientMotionSegment.addEventListener('click', (e) => {
+    const btn = e.target.closest('.seg-btn');
+    if (!btn) return;
+    const mode = btn.dataset.ambientMotion;
+    userSettings.ambientMotion = mode;
+    if (mode !== 'off' && !userSettings.ambientBg) {
+        userSettings.ambientBg = true;
+    }
     saveUserSettings();
     applyUserSettings();
     syncSettingsUI();
