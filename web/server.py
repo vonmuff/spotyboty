@@ -1,4 +1,5 @@
 import asyncio
+from datetime import datetime
 import hashlib
 import hmac
 import logging
@@ -31,6 +32,9 @@ MEDIA_TOKEN_TTL = 12 * 3600
 FILE_PATH_CACHE_TTL = 1800  # 30 минут
 FILE_PATH_CACHE_MAX_SIZE = 1000
 _file_path_cache: dict[str, tuple[str, float]] = {}
+
+MAX_USER_PLAYLISTS = 15
+MAX_PLAYLIST_NAME_LEN = 32
 
 
 async def get_cached_file_path(file_id: str, force_refresh: bool = False) -> str:
@@ -283,7 +287,255 @@ async def delete_track(request):
 
     async with aiosqlite.connect(DB_PATH) as conn:
         await conn.execute("DELETE FROM playlist WHERE user_id = ? AND file_id = ?", (user_id, file_id))
+        await conn.execute(
+            """
+            DELETE FROM playlist_items
+            WHERE file_id = ?
+              AND playlist_id IN (SELECT id FROM user_playlists WHERE user_id = ?)
+            """,
+            (file_id, user_id),
+        )
         await conn.commit()
+    return web.json_response({'status': 'deleted'})
+
+
+def _parse_playlist_id(request: web.Request) -> Optional[int]:
+    raw = request.match_info.get('id', '')
+    if not raw.isdigit():
+        return None
+    return int(raw)
+
+
+@routes.get('/api/playlists')
+async def list_user_playlists(request):
+    """Возвращает пользовательские плейлисты (папки) вместе со списками track_ids."""
+    user_id = _get_authenticated_user_id(request)
+    if user_id is None:
+        return web.json_response({'error': 'Unauthorized'}, status=401)
+
+    async with aiosqlite.connect(DB_PATH) as conn:
+        async with conn.execute(
+            "SELECT id, name, emoji FROM user_playlists WHERE user_id = ? ORDER BY id ASC",
+            (user_id,),
+        ) as cur:
+            pl_rows = await cur.fetchall()
+
+        async with conn.execute(
+            """
+            SELECT pi.playlist_id, pi.file_id
+            FROM playlist_items pi
+            INNER JOIN user_playlists up ON up.id = pi.playlist_id
+            INNER JOIN playlist p ON p.user_id = up.user_id AND p.file_id = pi.file_id
+            WHERE up.user_id = ?
+            ORDER BY pi.rowid DESC
+            """,
+            (user_id,),
+        ) as cur:
+            item_rows = await cur.fetchall()
+
+    items_by_pl: dict[int, list[str]] = {}
+    for pl_id, fid in item_rows:
+        items_by_pl.setdefault(pl_id, []).append(fid)
+
+    playlists = [
+        {
+            "id": pl_id,
+            "name": name,
+            "emoji": emoji or "🎧",
+            "track_ids": items_by_pl.get(pl_id, []),
+        }
+        for pl_id, name, emoji in pl_rows
+    ]
+    return web.json_response({"playlists": playlists})
+
+
+@routes.post('/api/playlists')
+async def create_user_playlist(request):
+    """Создаёт новый пользовательский плейлист (до MAX_USER_PLAYLISTS штук на пользователя)."""
+    user_id = _get_authenticated_user_id(request)
+    if user_id is None:
+        return web.json_response({'error': 'Unauthorized'}, status=401)
+
+    try:
+        body = await request.json()
+    except Exception:
+        return web.json_response({'error': 'Invalid JSON'}, status=400)
+
+    name = str(body.get('name', '')).strip()[:MAX_PLAYLIST_NAME_LEN]
+    emoji = str(body.get('emoji', '🎧')).strip()[:8] or '🎧'
+    if not name:
+        return web.json_response({'error': 'Name is required'}, status=400)
+
+    async with aiosqlite.connect(DB_PATH) as conn:
+        async with conn.execute(
+            "SELECT COUNT(*) FROM user_playlists WHERE user_id = ?",
+            (user_id,),
+        ) as cur:
+            count = (await cur.fetchone())[0]
+        if count >= MAX_USER_PLAYLISTS:
+            return web.json_response(
+                {'error': f'Максимум {MAX_USER_PLAYLISTS} плейлистов'},
+                status=400,
+            )
+
+        now_iso = datetime.now().isoformat()
+        cur = await conn.execute(
+            "INSERT INTO user_playlists (user_id, name, emoji, created_at) VALUES (?, ?, ?, ?)",
+            (user_id, name, emoji, now_iso),
+        )
+        pl_id = cur.lastrowid
+        await conn.commit()
+
+    return web.json_response(
+        {"playlist": {"id": pl_id, "name": name, "emoji": emoji, "track_ids": []}},
+        status=201,
+    )
+
+
+@routes.patch('/api/playlists/{id}')
+async def update_user_playlist(request):
+    """Переименовывает или меняет эмодзи пользовательского плейлиста."""
+    user_id = _get_authenticated_user_id(request)
+    if user_id is None:
+        return web.json_response({'error': 'Unauthorized'}, status=401)
+
+    pl_id = _parse_playlist_id(request)
+    if pl_id is None:
+        return web.json_response({'error': 'Invalid playlist id'}, status=400)
+
+    try:
+        body = await request.json()
+    except Exception:
+        return web.json_response({'error': 'Invalid JSON'}, status=400)
+
+    async with aiosqlite.connect(DB_PATH) as conn:
+        async with conn.execute(
+            "SELECT name, emoji FROM user_playlists WHERE id = ? AND user_id = ?",
+            (pl_id, user_id),
+        ) as cur:
+            row = await cur.fetchone()
+        if not row:
+            return web.json_response({'error': 'Not found'}, status=404)
+
+        new_name = str(body.get('name', row[0])).strip()[:MAX_PLAYLIST_NAME_LEN] or row[0]
+        new_emoji = str(body.get('emoji', row[1])).strip()[:8] or row[1]
+
+        await conn.execute(
+            "UPDATE user_playlists SET name = ?, emoji = ? WHERE id = ? AND user_id = ?",
+            (new_name, new_emoji, pl_id, user_id),
+        )
+        await conn.commit()
+
+    return web.json_response({"playlist": {"id": pl_id, "name": new_name, "emoji": new_emoji}})
+
+
+@routes.delete('/api/playlists/{id}')
+async def delete_user_playlist(request):
+    """Удаляет пользовательский плейлист (сами треки в 'Все треки' сохраняются)."""
+    user_id = _get_authenticated_user_id(request)
+    if user_id is None:
+        return web.json_response({'error': 'Unauthorized'}, status=401)
+
+    pl_id = _parse_playlist_id(request)
+    if pl_id is None:
+        return web.json_response({'error': 'Invalid playlist id'}, status=400)
+
+    async with aiosqlite.connect(DB_PATH) as conn:
+        async with conn.execute(
+            "SELECT 1 FROM user_playlists WHERE id = ? AND user_id = ?",
+            (pl_id, user_id),
+        ) as cur:
+            if not await cur.fetchone():
+                return web.json_response({'error': 'Not found'}, status=404)
+
+        await conn.execute("DELETE FROM playlist_items WHERE playlist_id = ?", (pl_id,))
+        await conn.execute("DELETE FROM user_playlists WHERE id = ? AND user_id = ?", (pl_id, user_id))
+        await conn.commit()
+
+    return web.json_response({'status': 'deleted'})
+
+
+@routes.post('/api/playlists/{id}/tracks')
+async def add_tracks_to_user_playlist(request):
+    """Добавляет один или несколько треков (file_ids) в пользовательский плейлист."""
+    user_id = _get_authenticated_user_id(request)
+    if user_id is None:
+        return web.json_response({'error': 'Unauthorized'}, status=401)
+
+    pl_id = _parse_playlist_id(request)
+    if pl_id is None:
+        return web.json_response({'error': 'Invalid playlist id'}, status=400)
+
+    try:
+        body = await request.json()
+    except Exception:
+        return web.json_response({'error': 'Invalid JSON'}, status=400)
+
+    raw_ids = body.get('file_ids')
+    if not isinstance(raw_ids, list) or not raw_ids:
+        return web.json_response({'error': 'file_ids list required'}, status=400)
+
+    clean_ids = [str(fid).strip() for fid in raw_ids if str(fid).strip()][:500]
+    if not clean_ids:
+        return web.json_response({'error': 'No valid file_ids'}, status=400)
+
+    async with aiosqlite.connect(DB_PATH) as conn:
+        async with conn.execute(
+            "SELECT 1 FROM user_playlists WHERE id = ? AND user_id = ?",
+            (pl_id, user_id),
+        ) as cur:
+            if not await cur.fetchone():
+                return web.json_response({'error': 'Not found'}, status=404)
+
+        # Разрешаем добавлять только треки, которые есть в библиотеке этого пользователя
+        placeholders = ",".join("?" for _ in clean_ids)
+        async with conn.execute(
+            f"SELECT file_id FROM playlist WHERE user_id = ? AND file_id IN ({placeholders})",
+            [user_id, *clean_ids],
+        ) as cur:
+            allowed_ids = {r[0] for r in await cur.fetchall()}
+
+        now_iso = datetime.now().isoformat()
+        to_insert = [(pl_id, fid, now_iso) for fid in clean_ids if fid in allowed_ids]
+        if to_insert:
+            await conn.executemany(
+                "INSERT OR IGNORE INTO playlist_items (playlist_id, file_id, added_at) VALUES (?, ?, ?)",
+                to_insert,
+            )
+            await conn.commit()
+
+    return web.json_response({'status': 'ok', 'added': len(to_insert)})
+
+
+@routes.delete('/api/playlists/{id}/tracks')
+async def remove_track_from_user_playlist(request):
+    """Убирает трек только из конкретного пользовательского плейлиста."""
+    user_id = _get_authenticated_user_id(request)
+    if user_id is None:
+        return web.json_response({'error': 'Unauthorized'}, status=401)
+
+    pl_id = _parse_playlist_id(request)
+    if pl_id is None:
+        return web.json_response({'error': 'Invalid playlist id'}, status=400)
+
+    file_id = request.query.get('file_id')
+    if not file_id:
+        return web.json_response({'error': 'No file_id'}, status=400)
+
+    async with aiosqlite.connect(DB_PATH) as conn:
+        async with conn.execute(
+            "SELECT 1 FROM user_playlists WHERE id = ? AND user_id = ?",
+            (pl_id, user_id),
+        ) as cur:
+            if not await cur.fetchone():
+                return web.json_response({'error': 'Not found'}, status=404)
+
+        await conn.execute(
+            "DELETE FROM playlist_items WHERE playlist_id = ? AND file_id = ?",
+            (pl_id, file_id),
+        )
+        await conn.commit()
+
     return web.json_response({'status': 'deleted'})
 
 

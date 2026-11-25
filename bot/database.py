@@ -49,6 +49,27 @@ async def init_db():
         await conn.execute("CREATE INDEX IF NOT EXISTS idx_request_logs_action ON request_logs(action)")
         await conn.execute("CREATE INDEX IF NOT EXISTS idx_request_logs_user_id ON request_logs(user_id)")
 
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS user_playlists (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                name TEXT NOT NULL,
+                emoji TEXT NOT NULL DEFAULT '🎧',
+                created_at TEXT NOT NULL
+            )
+        """)
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS playlist_items (
+                playlist_id INTEGER NOT NULL,
+                file_id TEXT NOT NULL,
+                added_at TEXT NOT NULL,
+                UNIQUE(playlist_id, file_id)
+            )
+        """)
+        await conn.execute("CREATE INDEX IF NOT EXISTS idx_user_playlists_user_id ON user_playlists(user_id)")
+        await conn.execute("CREATE INDEX IF NOT EXISTS idx_playlist_items_playlist_id ON playlist_items(playlist_id)")
+        await conn.execute("CREATE INDEX IF NOT EXISTS idx_playlist_items_file_id ON playlist_items(file_id)")
+
         for table in ("tracks", "playlist"):
             for col in ("title", "performer"):
                 try:
