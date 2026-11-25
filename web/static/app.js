@@ -25,7 +25,7 @@ const DEFAULT_SETTINGS = {
     autoNext: true,
     equalizer: true,
     ambientBg: true,
-    showSendBtn: true,
+    hideSendBtn: false,
     hideDeleteBtn: false,
     autoOpenPlayer: false,
     rememberLastTrack: true,
@@ -39,7 +39,12 @@ function loadUserSettings() {
     try {
         const raw = localStorage.getItem(SETTINGS_STORAGE_KEY);
         if (!raw) return { ...DEFAULT_SETTINGS };
-        return { ...DEFAULT_SETTINGS, ...JSON.parse(raw) };
+        const parsed = JSON.parse(raw);
+        if (parsed.hideSendBtn === undefined && typeof parsed.showSendBtn === 'boolean') {
+            parsed.hideSendBtn = !parsed.showSendBtn;
+        }
+        delete parsed.showSendBtn;
+        return { ...DEFAULT_SETTINGS, ...parsed };
     } catch (e) {
         return { ...DEFAULT_SETTINGS };
     }
@@ -84,7 +89,7 @@ function applyUserSettings() {
     document.documentElement.style.setProperty('--accent-hover', preset.hover);
     document.body.classList.toggle('no-equalizer', !userSettings.equalizer);
     document.body.classList.toggle('no-ambient-bg', !userSettings.ambientBg);
-    document.body.classList.toggle('hide-send-btn', !userSettings.showSendBtn);
+    document.body.classList.toggle('hide-send-btn', Boolean(userSettings.hideSendBtn));
     document.body.classList.toggle('hide-delete-btn', Boolean(userSettings.hideDeleteBtn));
     document.body.classList.toggle('compact-list', userSettings.density === 'compact');
     document.body.classList.toggle('vinyl-cover', userSettings.coverStyle === 'vinyl');
@@ -254,7 +259,7 @@ const optAudioFade = document.getElementById('optAudioFade');
 const optAutoNext = document.getElementById('optAutoNext');
 const optEqualizer = document.getElementById('optEqualizer');
 const optAmbientBg = document.getElementById('optAmbientBg');
-const optShowSendBtn = document.getElementById('optShowSendBtn');
+const optHideSendBtn = document.getElementById('optHideSendBtn');
 const optHideDeleteBtn = document.getElementById('optHideDeleteBtn');
 const optAutoOpenPlayer = document.getElementById('optAutoOpenPlayer');
 const optRememberLast = document.getElementById('optRememberLast');
@@ -434,7 +439,7 @@ function syncSettingsUI() {
     optAutoNext.checked = Boolean(userSettings.autoNext);
     optEqualizer.checked = Boolean(userSettings.equalizer);
     optAmbientBg.checked = Boolean(userSettings.ambientBg);
-    optShowSendBtn.checked = Boolean(userSettings.showSendBtn);
+    optHideSendBtn.checked = Boolean(userSettings.hideSendBtn);
     optHideDeleteBtn.checked = Boolean(userSettings.hideDeleteBtn);
     optAutoOpenPlayer.checked = Boolean(userSettings.autoOpenPlayer);
     optRememberLast.checked = Boolean(userSettings.rememberLastTrack);
@@ -644,8 +649,8 @@ optAmbientBg.addEventListener('change', () => {
     haptic('light');
 });
 
-optShowSendBtn.addEventListener('change', () => {
-    userSettings.showSendBtn = optShowSendBtn.checked;
+optHideSendBtn.addEventListener('change', () => {
+    userSettings.hideSendBtn = optHideSendBtn.checked;
     saveUserSettings();
     applyUserSettings();
     haptic('light');
