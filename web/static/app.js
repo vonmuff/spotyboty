@@ -2701,6 +2701,7 @@ function updatePlayButtons(playing) {
     fpPlayIcon.style.display = playing ? 'none' : 'block';
     fpPauseIcon.style.display = playing ? 'block' : 'none';
     fpArtBox.classList.toggle('playing', playing);
+    fullPlayer.classList.toggle('is-playing', playing);
     fpPlayPauseBtn.classList.toggle('is-playing', playing);
     document.querySelectorAll('.eq-overlay').forEach(el => {
         el.classList.toggle('paused', !playing);
