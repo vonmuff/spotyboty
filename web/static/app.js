@@ -106,6 +106,7 @@ function applyUserSettings() {
     document.body.classList.toggle('no-marquee', !userSettings.marquee);
     document.body.classList.toggle('reduced-motion', Boolean(userSettings.reducedMotion));
     applyTelegramTheme();
+    if (typeof resetBeatTransforms === 'function') resetBeatTransforms();
     if (typeof syncAmbientRuntime === 'function') syncAmbientRuntime();
 }
 
@@ -256,6 +257,10 @@ const currentTimeEl = document.getElementById('currentTime');
 const totalTimeEl = document.getElementById('totalTime');
 
 const fullPlayer = document.getElementById('fullPlayer');
+const fpBgEl = fullPlayer.querySelector('.fp-bg');
+const fpBgMeshEl = fullPlayer.querySelector('.fp-bg-mesh');
+const fpBgAuroraEl = fullPlayer.querySelector('.fp-bg-aurora');
+const fpArtHaloEl = fullPlayer.querySelector('.fp-art-halo');
 const fpBgImgs = [document.getElementById('fpBgImgA'), document.getElementById('fpBgImgB')];
 const fpBgAlts = [document.getElementById('fpBgAltA'), document.getElementById('fpBgAltB')];
 const fpBokehCanvas = document.getElementById('fpBokehCanvas');
@@ -2524,13 +2529,45 @@ window.addEventListener('resize', () => {
     }
 });
 
+function resetBeatTransforms() {
+    if (fpBgEl) fpBgEl.style.transform = '';
+    if (fpBgMeshEl) fpBgMeshEl.style.transform = '';
+    if (fpBgAuroraEl) fpBgAuroraEl.style.transform = '';
+    if (fpArtHaloEl) {
+        fpArtHaloEl.style.transform = '';
+        fpArtHaloEl.style.opacity = '';
+    }
+}
+
+function applyBeatVisuals(beat, curStyle, curBgOn) {
+    if (curBgOn) {
+        if (curStyle === 'mesh' && fpBgMeshEl) {
+            fpBgMeshEl.style.transform = `translate3d(0, 0, 0) scale(${(1 + beat * 0.14).toFixed(4)})`;
+            if (fpBgEl && fpBgEl.style.transform) fpBgEl.style.transform = '';
+            if (fpBgAuroraEl && fpBgAuroraEl.style.transform) fpBgAuroraEl.style.transform = '';
+        } else if (curStyle === 'aurora' && fpBgAuroraEl) {
+            fpBgAuroraEl.style.transform = `translate3d(0, 0, 0) scale(${(1 + beat * 0.12).toFixed(4)})`;
+            if (fpBgEl && fpBgEl.style.transform) fpBgEl.style.transform = '';
+            if (fpBgMeshEl && fpBgMeshEl.style.transform) fpBgMeshEl.style.transform = '';
+        } else if (curStyle !== 'bokeh' && fpBgEl) {
+            fpBgEl.style.transform = `translate3d(0, 0, 0) scale(${(1 + beat * 0.06).toFixed(4)})`;
+            if (fpBgMeshEl && fpBgMeshEl.style.transform) fpBgMeshEl.style.transform = '';
+            if (fpBgAuroraEl && fpBgAuroraEl.style.transform) fpBgAuroraEl.style.transform = '';
+        }
+    }
+    if (userSettings.coverHalo && fpArtHaloEl) {
+        fpArtHaloEl.style.transform = `translate3d(0, 0, 0) scale(${(0.92 + beat * 0.24).toFixed(4)})`;
+        fpArtHaloEl.style.opacity = `${(0.42 + beat * 0.48).toFixed(3)}`;
+    }
+}
+
 function stopAmbientRuntime() {
     if (ambientRafId !== null) {
         cancelAnimationFrame(ambientRafId);
         ambientRafId = null;
     }
     smoothedBeat = 0;
-    fullPlayer.style.setProperty('--beat', '0');
+    resetBeatTransforms();
     if (fpBokehCanvas && (userSettings.ambientStyle !== 'bokeh' || userSettings.ambientMotion === 'off' || !userSettings.ambientBg)) {
         const ctx = fpBokehCanvas.getContext('2d');
         if (ctx) ctx.clearRect(0, 0, fpBokehCanvas.width, fpBokehCanvas.height);
@@ -2587,12 +2624,17 @@ function syncAmbientRuntime() {
                 bassSum += audioFreqData[i];
             }
             const rawBass = bassSum / (bassBins * 255);
-            const energy = Math.max(0, Math.min(1, (rawBass - 0.28) * 1.9));
+            const energy = Math.max(0, Math.min(1, (rawBass - 0.26) * 1.95));
             smoothedBeat = smoothedBeat * 0.72 + energy * 0.28;
-            fullPlayer.style.setProperty('--beat', smoothedBeat.toFixed(3));
+            applyBeatVisuals(smoothedBeat, curStyle, curBgOn);
         } else if (smoothedBeat > 0.005) {
-            smoothedBeat *= 0.85;
-            fullPlayer.style.setProperty('--beat', smoothedBeat.toFixed(3));
+            smoothedBeat *= 0.84;
+            if (smoothedBeat <= 0.005) {
+                smoothedBeat = 0;
+                resetBeatTransforms();
+            } else {
+                applyBeatVisuals(smoothedBeat, curStyle, curBgOn);
+            }
         }
 
         if (doBokeh && fpBokehCanvas) {
