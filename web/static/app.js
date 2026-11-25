@@ -1240,6 +1240,65 @@ function endTabSwipe() {
 document.addEventListener('touchend', endTabSwipe);
 document.addEventListener('touchcancel', endTabSwipe);
 
+// ===== Two-finger Touchpad Horizontal Swipe (PC: Playlists & Fullscreen Player) =====
+let wheelAccumX = 0;
+let wheelLocked = false;
+let wheelLockedAt = 0;
+let wheelResetTimer = null;
+
+window.addEventListener('wheel', (e) => {
+    if (e.ctrlKey) return;
+    if (isSettingsOpen || isPlActionsOpen || isPlModalOpen || isAddTracksModalOpen || isTrackPlaylistsModalOpen || isTrackActionsOpen) return;
+    if (!isFullPlayerOpen && e.target.closest('.playlist-tabs')) return;
+
+    const absX = Math.abs(e.deltaX);
+    const absY = Math.abs(e.deltaY);
+    if (absX < 4 || absX <= absY * 1.35) return;
+
+    if (isFullPlayerOpen) {
+        if (getBaseQueueIds().length < 2) return;
+    } else {
+        if (userPlaylists.length === 0) return;
+    }
+
+    if (e.cancelable) e.preventDefault();
+
+    if (wheelResetTimer) clearTimeout(wheelResetTimer);
+    wheelResetTimer = setTimeout(() => {
+        wheelAccumX = 0;
+        wheelLocked = false;
+        wheelResetTimer = null;
+    }, 180);
+
+    if (wheelLocked) {
+        // Позволяем повторный осознанный жест после 520 мс, но гасим инерцию тачпада
+        if (Date.now() - wheelLockedAt < 520) return;
+        wheelLocked = false;
+        wheelAccumX = 0;
+    }
+
+    wheelAccumX += e.deltaX;
+    if (Math.abs(wheelAccumX) < 55) return;
+
+    const goNext = wheelAccumX > 0;
+    wheelAccumX = 0;
+    wheelLocked = true;
+    wheelLockedAt = Date.now();
+
+    if (isFullPlayerOpen) {
+        animateArtSwipeChange(goNext ? -1 : 1);
+    } else {
+        const tabs = getAllTabIds();
+        const curIdx = tabs.indexOf(activePlaylistId);
+        tabSwipeDeltaX = 0;
+        if (goNext && curIdx < tabs.length - 1) {
+            animateTabSwipeSwitch(tabs[curIdx + 1], -1);
+        } else if (!goNext && curIdx > 0) {
+            animateTabSwipeSwitch(tabs[curIdx - 1], 1);
+        }
+    }
+}, { passive: false });
+
 function selectPlaylistTab(plId, animate = false) {
     if (activePlaylistId === plId && !animate) return;
     activePlaylistId = plId;
