@@ -20,6 +20,19 @@
             </div>
         </div>
         <input type="text" id="searchInput" class="search-box" placeholder="Поиск по названию или автору...">
+        <div id="playlistTabs" class="playlist-tabs" role="tablist" aria-label="Плейлисты"></div>
+    </div>
+
+    <div id="playlistToolbar" class="playlist-toolbar" style="display:none;">
+        <button id="plAddTracksBtn" class="pl-tool-btn primary" type="button">➕ Добавить треки</button>
+        <div class="pl-tool-actions">
+            <button id="plEditBtn" class="pl-tool-btn icon-only" type="button" title="Изменить плейлист">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04a.996.996 0 0 0 0-1.41l-2.34-2.34a.996.996 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg>
+            </button>
+            <button id="plDeleteBtn" class="pl-tool-btn icon-only danger" type="button" title="Удалить плейлист">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg>
+            </button>
+        </div>
     </div>
 
     <div id="trackList" class="track-list">
@@ -321,6 +334,53 @@
             </div>
 
             <button id="settingsResetBtn" class="settings-reset-btn" type="button">Сбросить настройки</button>
+        </div>
+    </div>
+
+    <div id="plModalBackdrop" class="settings-backdrop" aria-hidden="true">
+        <div id="plModalSheet" class="settings-sheet modal-sheet" role="dialog" aria-modal="true" aria-label="Плейлист">
+            <div class="settings-handle"></div>
+            <div class="settings-header">
+                <h2 id="plModalTitle">Новый плейлист</h2>
+                <button id="plModalCloseBtn" class="header-icon-btn" type="button" aria-label="Закрыть">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+                </button>
+            </div>
+            <div class="settings-section">
+                <div class="settings-label">Иконка</div>
+                <div id="plEmojiPicker" class="emoji-picker">
+                    <button class="emoji-btn active" data-emoji="🎧" type="button">🎧</button>
+                    <button class="emoji-btn" data-emoji="🏋️" type="button">🏋️</button>
+                    <button class="emoji-btn" data-emoji="📚" type="button">📚</button>
+                    <button class="emoji-btn" data-emoji="🚗" type="button">🚗</button>
+                    <button class="emoji-btn" data-emoji="🌙" type="button">🌙</button>
+                    <button class="emoji-btn" data-emoji="🔥" type="button">🔥</button>
+                    <button class="emoji-btn" data-emoji="❤️" type="button">❤️</button>
+                    <button class="emoji-btn" data-emoji="🎮" type="button">🎮</button>
+                    <button class="emoji-btn" data-emoji="☕" type="button">☕</button>
+                    <button class="emoji-btn" data-emoji="🎸" type="button">🎸</button>
+                </div>
+            </div>
+            <div class="settings-section">
+                <div class="settings-label">Название</div>
+                <input type="text" id="plNameInput" class="search-box" maxlength="32" placeholder="Например: Тренировка">
+            </div>
+            <button id="plModalSaveBtn" class="modal-primary-btn" type="button">Создать</button>
+        </div>
+    </div>
+
+    <div id="addTracksBackdrop" class="settings-backdrop" aria-hidden="true">
+        <div id="addTracksSheet" class="settings-sheet modal-sheet" role="dialog" aria-modal="true" aria-label="Добавить треки">
+            <div class="settings-handle"></div>
+            <div class="settings-header">
+                <h2 id="addTracksTitle">Выбрать треки</h2>
+                <button id="addTracksCloseBtn" class="header-icon-btn" type="button" aria-label="Закрыть">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+                </button>
+            </div>
+            <input type="text" id="addTracksSearch" class="search-box" placeholder="Фильтр треков..." style="margin-bottom:12px;">
+            <div id="addTracksList" class="picker-track-list"></div>
+            <button id="addTracksSaveBtn" class="modal-primary-btn" type="button">Готово</button>
         </div>
     </div>
 
