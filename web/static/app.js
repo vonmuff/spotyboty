@@ -2687,6 +2687,26 @@ function syncAmbientRuntime() {
 
 document.addEventListener('visibilitychange', syncAmbientRuntime);
 
+const preloadedCoverUrls = new Set();
+
+function preloadNeighborCovers() {
+    const order = getActiveOrderIds();
+    if (order.length < 2 || !currentFileId) return;
+    const idx = order.indexOf(currentFileId);
+    if (idx === -1) return;
+
+    const offsets = [1, 2, -1];
+    for (const off of offsets) {
+        const neighborId = order[(idx + off + order.length) % order.length];
+        const t = allTracks.find(item => item.file_id === neighborId);
+        if (t && t.cover_url && !preloadedCoverUrls.has(t.cover_url)) {
+            preloadedCoverUrls.add(t.cover_url);
+            const img = new Image();
+            img.src = t.cover_url;
+        }
+    }
+}
+
 function crossfadeFullPlayerCover(coverUrl, instantCover = false) {
     const seq = ++fpCoverSeq;
     const prevIdx = fpActiveLayer;
@@ -2710,18 +2730,17 @@ function crossfadeFullPlayerCover(coverUrl, instantCover = false) {
     hideLayerInstantly(nextBg);
     hideLayerInstantly(nextAlt);
 
-    const preload = new Image();
-    preload.onload = () => {
-        if (seq !== fpCoverSeq) return;
+    let applied = false;
+    const applyLoadedCover = (imgEl) => {
+        if (applied || seq !== fpCoverSeq) return;
+        applied = true;
         fpCoverFallback.style.display = 'none';
         nextCover.src = coverUrl;
         nextBg.src = coverUrl;
         nextAlt.src = coverUrl;
-        extractCoverPalette(preload, coverUrl);
+        extractCoverPalette(imgEl, coverUrl);
 
         if (instantCover) {
-            // При свайпе сама карточка fpArtBox уже анимирует opacity/transform,
-            // поэтому обложку внутри меняем мгновенно без двойного наложения теней
             nextCover.style.transition = 'none';
             nextCover.classList.add('visible');
             void nextCover.offsetWidth;
@@ -2739,7 +2758,7 @@ function crossfadeFullPlayerCover(coverUrl, instantCover = false) {
                 nextAlt.classList.add('visible');
                 fpActiveLayer = nextIdx;
                 setTimeout(() => {
-                    if (fpActiveLayer === nextIdx) {
+                    if (seq === fpCoverSeq && fpActiveLayer === nextIdx) {
                         if (!instantCover) hideLayerInstantly(prevCover);
                         hideLayerInstantly(prevBg);
                         hideLayerInstantly(prevAlt);
@@ -2748,6 +2767,9 @@ function crossfadeFullPlayerCover(coverUrl, instantCover = false) {
             });
         });
     };
+
+    const preload = new Image();
+    preload.onload = () => applyLoadedCover(preload);
     preload.onerror = () => {
         if (seq !== fpCoverSeq) return;
         hideLayerInstantly(prevCover);
@@ -2760,6 +2782,15 @@ function crossfadeFullPlayerCover(coverUrl, instantCover = false) {
         fpCoverFallback.style.display = 'block';
     };
     preload.src = coverUrl;
+
+    // Если картинка уже в кэше браузера — показываем мгновенно без задержки
+    if (preload.complete && preload.naturalWidth > 0) {
+        applyLoadedCover(preload);
+    } else if (instantCover) {
+        // Не показываем старую обложку на новой карточке, пока новая ещё грузится
+        hideLayerInstantly(prevCover);
+        fpCoverFallback.style.display = 'block';
+    }
 }
 
 playerTrackTrigger.addEventListener('click', openFullPlayer);
@@ -3007,10 +3038,14 @@ scrollTopBtn.addEventListener('click', () => {
     smoothScrollToY(0);
 });
 
+let audioLoadTimer = null;
+let audioSwitchSeq = 0;
+
 function playTrackById(fileId, shouldScroll = false) {
     const track = filteredTracks.find(t => t.file_id === fileId) || allTracks.find(t => t.file_id === fileId);
     if (!track) return;
     currentFileId = track.file_id;
+    const switchSeq = ++audioSwitchSeq;
 
     const titleText = track.title || track.name;
     const artistText = track.performer || 'Spotify';
@@ -3026,23 +3061,23 @@ function playTrackById(fileId, shouldScroll = false) {
     setMarqueeText(fpTitle, titleText);
     setMarqueeText(fpArtist, artistText);
     crossfadeFullPlayerCover(track.cover_url, nextCoverInstant);
+    preloadNeighborCovers();
 
     pendingResumeTime = null;
     seekSlider.value = 0;
     fpSeekSlider.value = 0;
     setProgressVisual(0, 0);
 
-    // Не даём внутреннему событию pause при смене audio.src сжимать обложку во время буферизации
+    // Сразу глушим предыдущий поток, чтобы при быстром перелистывании не было «гудка» / щелчков
+    if (audioLoadTimer) {
+        clearTimeout(audioLoadTimer);
+        audioLoadTimer = null;
+    }
     cancelAudioFade();
-    try { audio.volume = 1; } catch (e) {}
     isSwitchingTrack = true;
-    audio.src = track.stream_url;
-    applyPlaybackRate();
-    saveLastTrackState(true);
-    audio.play().catch(() => {
-        isSwitchingTrack = false;
-        updatePlayButtons(false);
-    });
+    try { audio.pause(); } catch (e) {}
+    try { audio.volume = 0; } catch (e) {}
+
     updatePlayButtons(true);
     syncActiveTrackInDOM();
     if (shouldScroll) {
@@ -3056,6 +3091,31 @@ function playTrackById(fileId, shouldScroll = false) {
             artwork: [{ src: track.cover_url, sizes: '512x512', type: 'image/jpeg' }]
         });
     }
+
+    // Небольшой дебаунс (140 мс) загрузки аудиопотока: если юзер быстро пролистывает треки,
+    // промежуточные потоки вообще не стартуют и не булькают/не гудят
+    audioLoadTimer = setTimeout(() => {
+        audioLoadTimer = null;
+        if (switchSeq !== audioSwitchSeq) return;
+        audio.src = track.stream_url;
+        applyPlaybackRate();
+        saveLastTrackState(true);
+        const playPromise = audio.play();
+        if (playPromise && typeof playPromise.then === 'function') {
+            playPromise.then(() => {
+                if (switchSeq !== audioSwitchSeq) return;
+                fadeAudioVolume(0, 1, userSettings.audioFade ? 140 : 45);
+            }).catch((err) => {
+                if (switchSeq !== audioSwitchSeq) return;
+                if (err && err.name === 'AbortError') return;
+                isSwitchingTrack = false;
+                try { audio.volume = 1; } catch (e) {}
+                updatePlayButtons(false);
+            });
+        } else {
+            fadeAudioVolume(0, 1, 45);
+        }
+    }, 140);
 }
 
 function playPrevTrack() {
@@ -3083,6 +3143,11 @@ function togglePlayPause() {
     if (!currentFileId && filteredTracks.length > 0) {
         playTrackById(filteredTracks[0].file_id);
         return;
+    }
+    if (audioLoadTimer) {
+        clearTimeout(audioLoadTimer);
+        audioLoadTimer = null;
+        audioSwitchSeq++;
     }
     isSwitchingTrack = false;
     if (audio.paused) {
