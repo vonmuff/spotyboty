@@ -2402,38 +2402,34 @@ function applyAmbientPalette(targetPalette, instant = false) {
         ...(targetPalette[i] || DEFAULT_AMBIENT_PALETTE[i])
     ]);
 
-    if (instant || userSettings.reducedMotion || !isFullPlayerOpen) {
+    // CSS-переменные обновляем ОДИН раз за трек, чтобы мобильный GPU не перерисовывал
+    // градиентные текстуры по 20–40 раз за время свайпа (это и вызывало глитчи/разрывы)
+    writeAmbientPaletteVars(normalizedTarget);
+
+    // Для Canvas «Боке» можно безопасно и плавно морфить цвета (без перерисовки CSS-слоёв)
+    if (instant || userSettings.reducedMotion || !isFullPlayerOpen || userSettings.ambientStyle !== 'bokeh') {
         currentAmbientPalette = normalizedTarget;
-        writeAmbientPaletteVars(currentAmbientPalette);
         return;
     }
 
     const startPalette = currentAmbientPalette.map(c => [...c]);
     const durationMs = 680;
     const startTime = performance.now();
-    let lastWriteAt = 0;
 
     const step = (now) => {
         const t = Math.min(1, (now - startTime) / durationMs);
         const eased = 1 - Math.pow(1 - t, 3);
-        const blended = Array.from({ length: 4 }, (_, i) => [
+        currentAmbientPalette = Array.from({ length: 4 }, (_, i) => [
             Math.round(startPalette[i][0] + (normalizedTarget[i][0] - startPalette[i][0]) * eased),
             Math.round(startPalette[i][1] + (normalizedTarget[i][1] - startPalette[i][1]) * eased),
             Math.round(startPalette[i][2] + (normalizedTarget[i][2] - startPalette[i][2]) * eased),
         ]);
-        currentAmbientPalette = blended;
-        // На мобильных обновляем CSS-переменные ~24 раза/сек (каждые 40 мс), чтобы не грузить GPU-композитор
-        if (t >= 1 || now - lastWriteAt >= 40) {
-            lastWriteAt = now;
-            writeAmbientPaletteVars(blended);
-        }
 
         if (t < 1) {
             paletteMorphRafId = requestAnimationFrame(step);
         } else {
             paletteMorphRafId = null;
             currentAmbientPalette = normalizedTarget;
-            writeAmbientPaletteVars(normalizedTarget);
         }
     };
 
