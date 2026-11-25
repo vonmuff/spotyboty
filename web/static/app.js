@@ -886,6 +886,139 @@ function renderPlaylistTabs() {
     playlistToolbar.style.display = activePlaylistId === 'all' ? 'none' : 'flex';
 }
 
+function getAllTabIds() {
+    return ['all', ...userPlaylists.map(p => p.id)];
+}
+
+// 60fps horizontal screen swipe to switch between playlist tabs
+let tabSwipeStartX = 0;
+let tabSwipeStartY = 0;
+let tabSwipeStartTime = 0;
+let tabSwipeDeltaX = 0;
+let tabSwipeActive = false;
+let tabSwipeLocked = null; // 'horizontal' | 'vertical' | null
+let tabSwipeRafId = null;
+
+function renderTabSwipeFrame() {
+    tabSwipeRafId = null;
+    if (!tabSwipeActive || tabSwipeLocked !== 'horizontal') return;
+    const tabs = getAllTabIds();
+    const curIdx = tabs.indexOf(activePlaylistId);
+    const atStartEdge = curIdx <= 0 && tabSwipeDeltaX > 0;
+    const atEndEdge = curIdx >= tabs.length - 1 && tabSwipeDeltaX < 0;
+
+    let visualX = tabSwipeDeltaX;
+    if (atStartEdge || atEndEdge) {
+        // Мягкое «резиновое» сопротивление на крайних вкладках
+        visualX = Math.max(-44, Math.min(44, tabSwipeDeltaX * 0.24));
+    } else {
+        visualX = Math.max(-220, Math.min(220, tabSwipeDeltaX));
+    }
+    const op = atStartEdge || atEndEdge ? 1 : Math.max(0.55, 1 - Math.abs(visualX) / 380);
+    trackListEl.style.transform = `translate3d(${visualX}px, 0, 0)`;
+    trackListEl.style.opacity = `${op}`;
+}
+
+function animateTabSwipeSwitch(targetPlId, direction) {
+    // direction: -1 (swipe left -> next tab), +1 (swipe right -> prev tab)
+    trackListEl.classList.remove('swiping');
+    trackListEl.classList.add('swipe-out');
+    trackListEl.style.transform = `translate3d(${direction * 110}px, 0, 0)`;
+    trackListEl.style.opacity = '0';
+
+    setTimeout(() => {
+        activePlaylistId = targetPlId;
+        renderPlaylistTabs();
+        applySearchFilter();
+        window.scrollTo(0, 0);
+
+        trackListEl.classList.remove('swipe-out');
+        trackListEl.classList.add('swiping');
+        trackListEl.style.transform = `translate3d(${-direction * 46}px, 0, 0)`;
+        trackListEl.style.opacity = '0';
+        void trackListEl.offsetWidth;
+        trackListEl.classList.remove('swiping');
+        trackListEl.style.transform = '';
+        trackListEl.style.opacity = '';
+    }, 140);
+}
+
+document.addEventListener('touchstart', (e) => {
+    if (userPlaylists.length === 0) return;
+    if (isFullPlayerOpen || isSettingsOpen || isPlModalOpen || isAddTracksModalOpen) return;
+    if (e.touches.length !== 1) return;
+    if (e.target.closest('.header, .player-bar, .seek-wrapper, .undo-toast, input, button')) return;
+
+    tabSwipeStartX = e.touches[0].clientX;
+    tabSwipeStartY = e.touches[0].clientY;
+    tabSwipeStartTime = Date.now();
+    tabSwipeDeltaX = 0;
+    tabSwipeLocked = null;
+    tabSwipeActive = true;
+}, { passive: true });
+
+document.addEventListener('touchmove', (e) => {
+    if (!tabSwipeActive) return;
+    const dx = e.touches[0].clientX - tabSwipeStartX;
+    const dy = e.touches[0].clientY - tabSwipeStartY;
+
+    if (!tabSwipeLocked) {
+        if (Math.abs(dx) < 12 && Math.abs(dy) < 12) return;
+        if (Math.abs(dx) > Math.abs(dy) * 1.35) {
+            tabSwipeLocked = 'horizontal';
+            trackListEl.classList.remove('swipe-out');
+            trackListEl.classList.add('swiping');
+        } else {
+            tabSwipeLocked = 'vertical';
+            tabSwipeActive = false;
+            return;
+        }
+    }
+
+    if (tabSwipeLocked === 'horizontal') {
+        if (e.cancelable) e.preventDefault();
+        tabSwipeDeltaX = dx;
+        if (tabSwipeRafId === null) {
+            tabSwipeRafId = requestAnimationFrame(renderTabSwipeFrame);
+        }
+    }
+}, { passive: false });
+
+function endTabSwipe() {
+    if (!tabSwipeActive) return;
+    tabSwipeActive = false;
+    if (tabSwipeRafId !== null) {
+        cancelAnimationFrame(tabSwipeRafId);
+        tabSwipeRafId = null;
+    }
+    if (tabSwipeLocked !== 'horizontal') {
+        tabSwipeLocked = null;
+        return;
+    }
+    tabSwipeLocked = null;
+
+    const tabs = getAllTabIds();
+    const curIdx = tabs.indexOf(activePlaylistId);
+    const elapsed = Math.max(1, Date.now() - tabSwipeStartTime);
+    const vx = Math.abs(tabSwipeDeltaX) / elapsed;
+    const triggered = Math.abs(tabSwipeDeltaX) > 60 || vx > 0.42;
+
+    if (triggered && tabSwipeDeltaX < 0 && curIdx < tabs.length - 1) {
+        haptic('light');
+        animateTabSwipeSwitch(tabs[curIdx + 1], -1);
+    } else if (triggered && tabSwipeDeltaX > 0 && curIdx > 0) {
+        haptic('light');
+        animateTabSwipeSwitch(tabs[curIdx - 1], 1);
+    } else {
+        trackListEl.classList.remove('swiping', 'swipe-out');
+        trackListEl.style.transform = '';
+        trackListEl.style.opacity = '';
+    }
+}
+
+document.addEventListener('touchend', endTabSwipe);
+document.addEventListener('touchcancel', endTabSwipe);
+
 function selectPlaylistTab(plId, animate = false) {
     if (activePlaylistId === plId && !animate) return;
     activePlaylistId = plId;
