@@ -183,7 +183,6 @@ function getCurrentIndex() {
 const audio = document.getElementById('audioElement');
 const headerEl = document.getElementById('headerEl');
 const playlistTabs = document.getElementById('playlistTabs');
-const plMenuBtn = document.getElementById('plMenuBtn');
 const plActionsBackdrop = document.getElementById('plActionsBackdrop');
 const plActionsTitle = document.getElementById('plActionsTitle');
 const plActionsCloseBtn = document.getElementById('plActionsCloseBtn');
@@ -946,8 +945,6 @@ function renderPlaylistTabs() {
     if (activeTabEl) {
         activeTabEl.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' });
     }
-
-    plMenuBtn.style.display = activePlaylistId === 'all' ? 'none' : 'flex';
 }
 
 function openPlaylistActions() {
@@ -1090,7 +1087,6 @@ playlistTabs.addEventListener('pointercancel', (e) => {
     }
 });
 
-plMenuBtn.addEventListener('click', openPlaylistActions);
 plActionsCloseBtn.addEventListener('click', closePlaylistActions);
 plActionsBackdrop.addEventListener('click', (e) => {
     if (e.target === plActionsBackdrop) closePlaylistActions();
