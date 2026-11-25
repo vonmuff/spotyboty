@@ -1153,8 +1153,44 @@ body.fp-open {
     animation-play-state: paused;
 }
 
+body[data-ambient-motion="off"] .fp-bg-blur-layer {
+    animation: none;
+    transform: translate3d(0, 0, 0) scale(1.06);
+    filter: blur(44px) saturate(1.55) brightness(0.48);
+}
+
+body[data-ambient-motion="soft"] .fp-bg-blur-layer {
+    filter: blur(44px) saturate(1.55) brightness(0.48);
+    animation: ambientBgDriftSoft 20s ease-in-out infinite;
+    animation-play-state: paused;
+}
+
+body[data-ambient-motion="vivid"] .fp-bg-blur-layer {
+    filter: blur(38px) saturate(2.05) brightness(0.64);
+    animation: ambientBgDriftVivid 7.5s ease-in-out infinite;
+    animation-play-state: paused;
+}
+
 .full-player.open.is-playing .fp-bg-blur-layer {
     animation-play-state: running;
+}
+
+@keyframes ambientBgDriftSoft {
+    0% {
+        transform: translate3d(0px, 0px, 0) scale(1.06) rotate(0deg);
+    }
+    25% {
+        transform: translate3d(24px, -18px, 0) scale(1.14) rotate(3deg);
+    }
+    50% {
+        transform: translate3d(-18px, 22px, 0) scale(1.09) rotate(-2.5deg);
+    }
+    75% {
+        transform: translate3d(-24px, -14px, 0) scale(1.15) rotate(2deg);
+    }
+    100% {
+        transform: translate3d(0px, 0px, 0) scale(1.06) rotate(0deg);
+    }
 }
 
 @keyframes ambientBgDrift {
@@ -1172,6 +1208,24 @@ body.fp-open {
     }
     100% {
         transform: translate3d(0px, 0px, 0) scale(1.12) rotate(0deg);
+    }
+}
+
+@keyframes ambientBgDriftVivid {
+    0% {
+        transform: translate3d(0px, 0px, 0) scale(1.16) rotate(0deg);
+    }
+    25% {
+        transform: translate3d(78px, -54px, 0) scale(1.38) rotate(14deg);
+    }
+    50% {
+        transform: translate3d(-66px, 60px, 0) scale(1.24) rotate(-13deg);
+    }
+    75% {
+        transform: translate3d(-74px, -48px, 0) scale(1.40) rotate(11deg);
+    }
+    100% {
+        transform: translate3d(0px, 0px, 0) scale(1.16) rotate(0deg);
     }
 }
 
