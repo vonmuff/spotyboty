@@ -1245,7 +1245,6 @@ body[data-ambient-style="mesh"] .fp-bg-mesh {
     filter: blur(36px);
     opacity: 0.84;
     will-change: transform;
-    transition: background 0.8s ease;
 }
 
 :root[data-fp-theme="light"] .mesh-orb {
@@ -1331,7 +1330,6 @@ body[data-ambient-style="aurora"] .fp-bg-aurora {
     will-change: transform;
     backface-visibility: hidden;
     -webkit-backface-visibility: hidden;
-    transition: background 0.8s ease;
 }
 
 :root[data-fp-theme="light"] .aurora-wave {

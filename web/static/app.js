@@ -138,6 +138,7 @@ let suppressNextTabClick = false;
 let bokehParticles = [];
 let ambientRafId = null;
 let lastAmbientFrameTime = 0;
+let paletteMorphRafId = null;
 
 function haptic(style = 'light') {
     if (!userSettings.haptic) return;
@@ -2379,12 +2380,54 @@ function boostColorVividness(r, g, b) {
     return [nr, ng, nb];
 }
 
-function applyAmbientPalette(palette) {
-    currentAmbientPalette = palette;
+function writeAmbientPaletteVars(palette) {
     for (let i = 0; i < 4; i++) {
         const [r, g, b] = palette[i] || DEFAULT_AMBIENT_PALETTE[i];
         fullPlayer.style.setProperty(`--fp-c${i + 1}`, `rgb(${r}, ${g}, ${b})`);
     }
+}
+
+function applyAmbientPalette(targetPalette, instant = false) {
+    if (paletteMorphRafId !== null) {
+        cancelAnimationFrame(paletteMorphRafId);
+        paletteMorphRafId = null;
+    }
+
+    const normalizedTarget = Array.from({ length: 4 }, (_, i) => [
+        ...(targetPalette[i] || DEFAULT_AMBIENT_PALETTE[i])
+    ]);
+
+    if (instant || userSettings.reducedMotion || !isFullPlayerOpen) {
+        currentAmbientPalette = normalizedTarget;
+        writeAmbientPaletteVars(currentAmbientPalette);
+        return;
+    }
+
+    const startPalette = currentAmbientPalette.map(c => [...c]);
+    const durationMs = 680;
+    const startTime = performance.now();
+
+    const step = (now) => {
+        const t = Math.min(1, (now - startTime) / durationMs);
+        const eased = 1 - Math.pow(1 - t, 3);
+        const blended = Array.from({ length: 4 }, (_, i) => [
+            Math.round(startPalette[i][0] + (normalizedTarget[i][0] - startPalette[i][0]) * eased),
+            Math.round(startPalette[i][1] + (normalizedTarget[i][1] - startPalette[i][1]) * eased),
+            Math.round(startPalette[i][2] + (normalizedTarget[i][2] - startPalette[i][2]) * eased),
+        ]);
+        currentAmbientPalette = blended;
+        writeAmbientPaletteVars(blended);
+
+        if (t < 1) {
+            paletteMorphRafId = requestAnimationFrame(step);
+        } else {
+            paletteMorphRafId = null;
+            currentAmbientPalette = normalizedTarget;
+            writeAmbientPaletteVars(normalizedTarget);
+        }
+    };
+
+    paletteMorphRafId = requestAnimationFrame(step);
 }
 
 function extractCoverPalette(img, coverUrl) {
@@ -2496,7 +2539,8 @@ function syncAmbientRuntime() {
     const style = userSettings.ambientStyle || 'mesh';
     const motion = userSettings.ambientMotion || 'medium';
     const bgEnabled = Boolean(userSettings.ambientBg) && !userSettings.reducedMotion;
-    const needsBokeh = isFullPlayerOpen && !audio.paused && !document.hidden && bgEnabled && style === 'bokeh' && motion !== 'off';
+    const isPlayingOrSwitching = !audio.paused || isSwitchingTrack;
+    const needsBokeh = isFullPlayerOpen && isPlayingOrSwitching && !document.hidden && bgEnabled && style === 'bokeh' && motion !== 'off';
 
     if (!needsBokeh) {
         stopAmbientRuntime();
@@ -2515,7 +2559,8 @@ function syncAmbientRuntime() {
         const curStyle = userSettings.ambientStyle || 'mesh';
         const curMotion = userSettings.ambientMotion || 'medium';
         const curBgOn = Boolean(userSettings.ambientBg) && !userSettings.reducedMotion;
-        const doBokeh = isFullPlayerOpen && !audio.paused && !document.hidden && curBgOn && curStyle === 'bokeh' && curMotion !== 'off';
+        const activePlay = !audio.paused || isSwitchingTrack;
+        const doBokeh = isFullPlayerOpen && activePlay && !document.hidden && curBgOn && curStyle === 'bokeh' && curMotion !== 'off';
 
         if (!doBokeh) {
             stopAmbientRuntime();
