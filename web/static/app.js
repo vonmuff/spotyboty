@@ -2621,7 +2621,7 @@ function syncAmbientRuntime() {
 
 document.addEventListener('visibilitychange', syncAmbientRuntime);
 
-const preloadedCoverUrls = new Set();
+const preloadedCovers = new Map();
 
 function preloadNeighborCovers() {
     const order = getActiveOrderIds();
@@ -2629,14 +2629,22 @@ function preloadNeighborCovers() {
     const idx = order.indexOf(currentFileId);
     if (idx === -1) return;
 
-    const offsets = [1, 2, -1];
+    const offsets = [1, 2, -1, -2];
     for (const off of offsets) {
         const neighborId = order[(idx + off + order.length) % order.length];
         const t = allTracks.find(item => item.file_id === neighborId);
-        if (t && t.cover_url && !preloadedCoverUrls.has(t.cover_url)) {
-            preloadedCoverUrls.add(t.cover_url);
+        if (t && t.cover_url && !preloadedCovers.has(t.cover_url)) {
             const img = new Image();
+            img.decoding = 'async';
             img.src = t.cover_url;
+            if (typeof img.decode === 'function') {
+                img.decode().catch(() => {});
+            }
+            preloadedCovers.set(t.cover_url, img);
+            if (preloadedCovers.size > 40) {
+                const firstKey = preloadedCovers.keys().next().value;
+                preloadedCovers.delete(firstKey);
+            }
         }
     }
 }
@@ -2665,9 +2673,15 @@ function crossfadeFullPlayerCover(coverUrl, instantCover = false) {
     hideLayerInstantly(nextAlt);
 
     let applied = false;
+    let fallbackTimer = null;
+
     const applyLoadedCover = (imgEl) => {
         if (applied || seq !== fpCoverSeq) return;
         applied = true;
+        if (fallbackTimer) {
+            clearTimeout(fallbackTimer);
+            fallbackTimer = null;
+        }
         fpCoverFallback.style.display = 'none';
         nextCover.src = coverUrl;
         nextBg.src = coverUrl;
@@ -2677,9 +2691,10 @@ function crossfadeFullPlayerCover(coverUrl, instantCover = false) {
         if (instantCover) {
             nextCover.style.transition = 'none';
             nextCover.classList.add('visible');
-            void nextCover.offsetWidth;
-            nextCover.style.transition = '';
             hideLayerInstantly(prevCover);
+            requestAnimationFrame(() => {
+                if (seq === fpCoverSeq) nextCover.style.transition = '';
+            });
         }
 
         requestAnimationFrame(() => {
@@ -2702,10 +2717,21 @@ function crossfadeFullPlayerCover(coverUrl, instantCover = false) {
         });
     };
 
-    const preload = new Image();
+    const cachedImg = preloadedCovers.get(coverUrl);
+    if (cachedImg && cachedImg.complete && cachedImg.naturalWidth > 0) {
+        applyLoadedCover(cachedImg);
+        return;
+    }
+
+    const preload = cachedImg || new Image();
+    preload.decoding = 'async';
     preload.onload = () => applyLoadedCover(preload);
     preload.onerror = () => {
         if (seq !== fpCoverSeq) return;
+        if (fallbackTimer) {
+            clearTimeout(fallbackTimer);
+            fallbackTimer = null;
+        }
         hideLayerInstantly(prevCover);
         hideLayerInstantly(nextCover);
         hideLayerInstantly(prevBg);
@@ -2715,15 +2741,22 @@ function crossfadeFullPlayerCover(coverUrl, instantCover = false) {
         applyAmbientPalette(DEFAULT_AMBIENT_PALETTE);
         fpCoverFallback.style.display = 'block';
     };
-    preload.src = coverUrl;
+    if (!cachedImg) {
+        preload.src = coverUrl;
+        preloadedCovers.set(coverUrl, preload);
+    }
 
-    // Если картинка уже в кэше браузера — показываем мгновенно без задержки
     if (preload.complete && preload.naturalWidth > 0) {
         applyLoadedCover(preload);
     } else if (instantCover) {
-        // Не показываем старую обложку на новой карточке, пока новая ещё грузится
+        // Ждём 90 мс перед показом заглушки 🎵, чтобы кэшированные обложки никогда не мигали
         hideLayerInstantly(prevCover);
-        fpCoverFallback.style.display = 'block';
+        fallbackTimer = setTimeout(() => {
+            fallbackTimer = null;
+            if (!applied && seq === fpCoverSeq) {
+                fpCoverFallback.style.display = 'block';
+            }
+        }, 90);
     }
 }
 
@@ -2761,16 +2794,22 @@ function renderSwipeFrame() {
 }
 
 let nextCoverInstant = false;
+let artSwipeTimer = null;
 
 function animateArtSwipeChange(direction) {
     // direction: -1 (swipe left -> next track), +1 (swipe right -> prev track)
+    if (artSwipeTimer) {
+        clearTimeout(artSwipeTimer);
+        artSwipeTimer = null;
+    }
     const baseScale = audio.paused ? 0.92 : 1;
     fpArtBox.classList.remove('swiping');
     fpArtBox.classList.add('swipe-out');
-    fpArtBox.style.transform = `translate3d(${direction * 115}%, 0, 0) rotate(${direction * 6}deg) scale(${baseScale * 0.95})`;
+    fpArtBox.style.transform = `translate3d(${direction * 110}%, 0, 0) rotate(${direction * 5}deg) scale(${baseScale * 0.95})`;
     fpArtBox.style.opacity = '0';
 
-    setTimeout(() => {
+    artSwipeTimer = setTimeout(() => {
+        artSwipeTimer = null;
         nextCoverInstant = true;
         if (direction < 0) {
             playNextTrack();
@@ -2781,13 +2820,18 @@ function animateArtSwipeChange(direction) {
 
         fpArtBox.classList.remove('swipe-out');
         fpArtBox.classList.add('swiping');
-        fpArtBox.style.transform = `translate3d(${-direction * 46}px, 0, 0) scale(0.93)`;
+        fpArtBox.style.transform = `translate3d(${-direction * 54}px, 0, 0) scale(0.94)`;
         fpArtBox.style.opacity = '0';
-        void fpArtBox.offsetWidth;
-        fpArtBox.classList.remove('swiping');
-        fpArtBox.style.transform = '';
-        fpArtBox.style.opacity = '';
-    }, 170);
+
+        // Двойной rAF вместо синхронного offsetWidth — чистый 60fps вход без forced reflow
+        requestAnimationFrame(() => {
+            requestAnimationFrame(() => {
+                fpArtBox.classList.remove('swiping');
+                fpArtBox.style.transform = '';
+                fpArtBox.style.opacity = '';
+            });
+        });
+    }, 150);
 }
 
 fullPlayer.addEventListener('touchstart', (e) => {
