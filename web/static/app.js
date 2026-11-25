@@ -28,6 +28,7 @@ const DEFAULT_SETTINGS = {
     ambientBg: true,
     hideSendBtn: false,
     hideDeleteBtn: false,
+    dragReorder: false,
     autoOpenPlayer: false,
     rememberLastTrack: true,
     autoScroll: true,
@@ -283,6 +284,7 @@ const optEqualizer = document.getElementById('optEqualizer');
 const optAmbientBg = document.getElementById('optAmbientBg');
 const optHideSendBtn = document.getElementById('optHideSendBtn');
 const optHideDeleteBtn = document.getElementById('optHideDeleteBtn');
+const optDragReorder = document.getElementById('optDragReorder');
 const optAutoOpenPlayer = document.getElementById('optAutoOpenPlayer');
 const optRememberLast = document.getElementById('optRememberLast');
 const optAutoScroll = document.getElementById('optAutoScroll');
@@ -466,6 +468,7 @@ function syncSettingsUI() {
     optAmbientBg.checked = Boolean(userSettings.ambientBg);
     optHideSendBtn.checked = Boolean(userSettings.hideSendBtn);
     optHideDeleteBtn.checked = Boolean(userSettings.hideDeleteBtn);
+    optDragReorder.checked = Boolean(userSettings.dragReorder);
     optAutoOpenPlayer.checked = Boolean(userSettings.autoOpenPlayer);
     optRememberLast.checked = Boolean(userSettings.rememberLastTrack);
     optAutoScroll.checked = Boolean(userSettings.autoScroll);
@@ -694,6 +697,13 @@ optHideDeleteBtn.addEventListener('change', () => {
     userSettings.hideDeleteBtn = optHideDeleteBtn.checked;
     saveUserSettings();
     applyUserSettings();
+    haptic('light');
+});
+
+optDragReorder.addEventListener('change', () => {
+    userSettings.dragReorder = optDragReorder.checked;
+    saveUserSettings();
+    renderTracks();
     haptic('light');
 });
 
@@ -1677,7 +1687,7 @@ function renderTracks(options = {}) {
 
     trackListEl.innerHTML = '';
     const isPaused = audio.paused;
-    const canReorderTracks = Boolean(activePl) && !searchInput.value.trim() && (userSettings.sortOrder === 'newest' || !userSettings.sortOrder);
+    const canReorderTracks = Boolean(userSettings.dragReorder) && Boolean(activePl) && !searchInput.value.trim() && (userSettings.sortOrder === 'newest' || !userSettings.sortOrder);
     const deleteSwipeLabel = activePl ? 'Убрать' : 'Удалить';
 
     filteredTracks.forEach((track, idx) => {
