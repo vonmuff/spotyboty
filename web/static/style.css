@@ -1627,12 +1627,8 @@ body.cover-halo .fp-art-halo {
     display: block;
 }
 
-body.cover-halo:not(.audio-reactive) .full-player.open.is-playing .fp-art-halo {
+body.cover-halo .full-player.open.is-playing .fp-art-halo {
     animation: haloBreathe 4.2s ease-in-out infinite;
-}
-
-body.cover-halo.audio-reactive .fp-art-halo {
-    animation: none !important;
 }
 
 @keyframes haloBreathe {

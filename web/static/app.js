@@ -23,7 +23,6 @@ const DEFAULT_SETTINGS = {
     coverStyle: 'square', // 'square' | 'vinyl'
     ambientStyle: 'mesh', // 'mesh' | 'aurora' | 'bokeh' | 'parallax' | 'drift' | 'static'
     ambientMotion: 'medium', // 'off' | 'soft' | 'medium' | 'vivid'
-    audioReactive: false,
     coverHalo: true,
     playbackRate: 1,
     audioFade: true,
@@ -97,7 +96,6 @@ function applyUserSettings() {
     document.body.classList.toggle('no-ambient-bg', !userSettings.ambientBg);
     document.body.dataset.ambientStyle = userSettings.ambientStyle || 'mesh';
     document.body.dataset.ambientMotion = userSettings.ambientMotion || 'medium';
-    document.body.classList.toggle('audio-reactive', Boolean(userSettings.audioReactive));
     document.body.classList.toggle('cover-halo', Boolean(userSettings.coverHalo));
     document.body.classList.toggle('hide-send-btn', Boolean(userSettings.hideSendBtn));
     document.body.classList.toggle('hide-delete-btn', Boolean(userSettings.hideDeleteBtn));
@@ -106,7 +104,6 @@ function applyUserSettings() {
     document.body.classList.toggle('no-marquee', !userSettings.marquee);
     document.body.classList.toggle('reduced-motion', Boolean(userSettings.reducedMotion));
     applyTelegramTheme();
-    if (typeof resetBeatTransforms === 'function') resetBeatTransforms();
     if (typeof syncAmbientRuntime === 'function') syncAmbientRuntime();
 }
 
@@ -138,11 +135,6 @@ let selectedModalEmoji = '🎧';
 let pickerSelectedIds = new Set();
 let suppressNextTrackClick = false;
 let suppressNextTabClick = false;
-let audioCtx = null;
-let audioAnalyser = null;
-let audioSourceNode = null;
-let audioFreqData = null;
-let smoothedBeat = 0;
 let bokehParticles = [];
 let ambientRafId = null;
 let lastAmbientFrameTime = 0;
@@ -257,10 +249,6 @@ const currentTimeEl = document.getElementById('currentTime');
 const totalTimeEl = document.getElementById('totalTime');
 
 const fullPlayer = document.getElementById('fullPlayer');
-const fpBgEl = fullPlayer.querySelector('.fp-bg');
-const fpBgMeshEl = fullPlayer.querySelector('.fp-bg-mesh');
-const fpBgAuroraEl = fullPlayer.querySelector('.fp-bg-aurora');
-const fpArtHaloEl = fullPlayer.querySelector('.fp-art-halo');
 const fpBgImgs = [document.getElementById('fpBgImgA'), document.getElementById('fpBgImgB')];
 const fpBgAlts = [document.getElementById('fpBgAltA'), document.getElementById('fpBgAltB')];
 const fpBokehCanvas = document.getElementById('fpBokehCanvas');
@@ -307,7 +295,6 @@ const optAudioFade = document.getElementById('optAudioFade');
 const optAutoNext = document.getElementById('optAutoNext');
 const optEqualizer = document.getElementById('optEqualizer');
 const optAmbientBg = document.getElementById('optAmbientBg');
-const optAudioReactive = document.getElementById('optAudioReactive');
 const optCoverHalo = document.getElementById('optCoverHalo');
 const optHideSendBtn = document.getElementById('optHideSendBtn');
 const optHideDeleteBtn = document.getElementById('optHideDeleteBtn');
@@ -499,7 +486,6 @@ function syncSettingsUI() {
     optAutoNext.checked = Boolean(userSettings.autoNext);
     optEqualizer.checked = Boolean(userSettings.equalizer);
     optAmbientBg.checked = Boolean(userSettings.ambientBg);
-    optAudioReactive.checked = Boolean(userSettings.audioReactive);
     optCoverHalo.checked = Boolean(userSettings.coverHalo);
     optHideSendBtn.checked = Boolean(userSettings.hideSendBtn);
     optHideDeleteBtn.checked = Boolean(userSettings.hideDeleteBtn);
@@ -743,13 +729,6 @@ optEqualizer.addEventListener('change', () => {
 
 optAmbientBg.addEventListener('change', () => {
     userSettings.ambientBg = optAmbientBg.checked;
-    saveUserSettings();
-    applyUserSettings();
-    haptic('light');
-});
-
-optAudioReactive.addEventListener('change', () => {
-    userSettings.audioReactive = optAudioReactive.checked;
     saveUserSettings();
     applyUserSettings();
     haptic('light');
@@ -2468,33 +2447,6 @@ function extractCoverPalette(img, coverUrl) {
     }
 }
 
-function ensureAudioAnalyser() {
-    if (audioAnalyser) {
-        if (audioCtx && audioCtx.state === 'suspended') {
-            audioCtx.resume().catch(() => {});
-        }
-        return true;
-    }
-    try {
-        const AudioCtx = window.AudioContext || window.webkitAudioContext;
-        if (!AudioCtx) return false;
-        audioCtx = new AudioCtx();
-        audioAnalyser = audioCtx.createAnalyser();
-        audioAnalyser.fftSize = 256;
-        audioAnalyser.smoothingTimeConstant = 0.78;
-        audioSourceNode = audioCtx.createMediaElementSource(audio);
-        audioSourceNode.connect(audioAnalyser);
-        audioAnalyser.connect(audioCtx.destination);
-        audioFreqData = new Uint8Array(audioAnalyser.frequencyBinCount);
-        if (audioCtx.state === 'suspended') {
-            audioCtx.resume().catch(() => {});
-        }
-        return true;
-    } catch (e) {
-        return false;
-    }
-}
-
 const BOKEH_COUNT = 26;
 
 function initBokehParticles(w, h) {
@@ -2529,45 +2481,11 @@ window.addEventListener('resize', () => {
     }
 });
 
-function resetBeatTransforms() {
-    if (fpBgEl) fpBgEl.style.transform = '';
-    if (fpBgMeshEl) fpBgMeshEl.style.transform = '';
-    if (fpBgAuroraEl) fpBgAuroraEl.style.transform = '';
-    if (fpArtHaloEl) {
-        fpArtHaloEl.style.transform = '';
-        fpArtHaloEl.style.opacity = '';
-    }
-}
-
-function applyBeatVisuals(beat, curStyle, curBgOn) {
-    if (curBgOn) {
-        if (curStyle === 'mesh' && fpBgMeshEl) {
-            fpBgMeshEl.style.transform = `translate3d(0, 0, 0) scale(${(1 + beat * 0.14).toFixed(4)})`;
-            if (fpBgEl && fpBgEl.style.transform) fpBgEl.style.transform = '';
-            if (fpBgAuroraEl && fpBgAuroraEl.style.transform) fpBgAuroraEl.style.transform = '';
-        } else if (curStyle === 'aurora' && fpBgAuroraEl) {
-            fpBgAuroraEl.style.transform = `translate3d(0, 0, 0) scale(${(1 + beat * 0.12).toFixed(4)})`;
-            if (fpBgEl && fpBgEl.style.transform) fpBgEl.style.transform = '';
-            if (fpBgMeshEl && fpBgMeshEl.style.transform) fpBgMeshEl.style.transform = '';
-        } else if (curStyle !== 'bokeh' && fpBgEl) {
-            fpBgEl.style.transform = `translate3d(0, 0, 0) scale(${(1 + beat * 0.06).toFixed(4)})`;
-            if (fpBgMeshEl && fpBgMeshEl.style.transform) fpBgMeshEl.style.transform = '';
-            if (fpBgAuroraEl && fpBgAuroraEl.style.transform) fpBgAuroraEl.style.transform = '';
-        }
-    }
-    if (userSettings.coverHalo && fpArtHaloEl) {
-        fpArtHaloEl.style.transform = `translate3d(0, 0, 0) scale(${(0.92 + beat * 0.24).toFixed(4)})`;
-        fpArtHaloEl.style.opacity = `${(0.42 + beat * 0.48).toFixed(3)}`;
-    }
-}
-
 function stopAmbientRuntime() {
     if (ambientRafId !== null) {
         cancelAnimationFrame(ambientRafId);
         ambientRafId = null;
     }
-    smoothedBeat = 0;
-    resetBeatTransforms();
     if (fpBokehCanvas && (userSettings.ambientStyle !== 'bokeh' || userSettings.ambientMotion === 'off' || !userSettings.ambientBg)) {
         const ctx = fpBokehCanvas.getContext('2d');
         if (ctx) ctx.clearRect(0, 0, fpBokehCanvas.width, fpBokehCanvas.height);
@@ -2578,26 +2496,17 @@ function syncAmbientRuntime() {
     const style = userSettings.ambientStyle || 'mesh';
     const motion = userSettings.ambientMotion || 'medium';
     const bgEnabled = Boolean(userSettings.ambientBg) && !userSettings.reducedMotion;
-    const canRun = isFullPlayerOpen && !audio.paused && !document.hidden && !userSettings.reducedMotion;
-    const needsBokeh = canRun && bgEnabled && style === 'bokeh' && motion !== 'off';
-    const needsBeat = canRun && Boolean(userSettings.audioReactive) && (bgEnabled || Boolean(userSettings.coverHalo));
+    const needsBokeh = isFullPlayerOpen && !audio.paused && !document.hidden && bgEnabled && style === 'bokeh' && motion !== 'off';
 
-    if (!needsBokeh && !needsBeat) {
+    if (!needsBokeh) {
         stopAmbientRuntime();
         return;
     }
 
-    if (needsBeat) {
-        ensureAudioAnalyser();
-    }
-    if (needsBokeh) {
-        resizeBokehCanvas();
-    }
+    resizeBokehCanvas();
 
     if (ambientRafId !== null) return;
     lastAmbientFrameTime = performance.now();
-
-    const speedMul = motion === 'soft' ? 0.55 : (motion === 'vivid' ? 1.65 : 1);
 
     const step = (now) => {
         const dt = Math.min(48, now - lastAmbientFrameTime) / 16.67;
@@ -2606,38 +2515,14 @@ function syncAmbientRuntime() {
         const curStyle = userSettings.ambientStyle || 'mesh';
         const curMotion = userSettings.ambientMotion || 'medium';
         const curBgOn = Boolean(userSettings.ambientBg) && !userSettings.reducedMotion;
-        const active = isFullPlayerOpen && !audio.paused && !document.hidden && !userSettings.reducedMotion;
-        const doBokeh = active && curBgOn && curStyle === 'bokeh' && curMotion !== 'off';
-        const doBeat = active && Boolean(userSettings.audioReactive) && (curBgOn || Boolean(userSettings.coverHalo));
+        const doBokeh = isFullPlayerOpen && !audio.paused && !document.hidden && curBgOn && curStyle === 'bokeh' && curMotion !== 'off';
 
-        if (!doBokeh && !doBeat) {
+        if (!doBokeh) {
             stopAmbientRuntime();
             return;
         }
 
-        if (doBeat && audioAnalyser && audioFreqData) {
-            audioAnalyser.getByteFrequencyData(audioFreqData);
-            // Басовый диапазон (примерно 40–220 Гц)
-            let bassSum = 0;
-            const bassBins = 8;
-            for (let i = 1; i <= bassBins; i++) {
-                bassSum += audioFreqData[i];
-            }
-            const rawBass = bassSum / (bassBins * 255);
-            const energy = Math.max(0, Math.min(1, (rawBass - 0.26) * 1.95));
-            smoothedBeat = smoothedBeat * 0.72 + energy * 0.28;
-            applyBeatVisuals(smoothedBeat, curStyle, curBgOn);
-        } else if (smoothedBeat > 0.005) {
-            smoothedBeat *= 0.84;
-            if (smoothedBeat <= 0.005) {
-                smoothedBeat = 0;
-                resetBeatTransforms();
-            } else {
-                applyBeatVisuals(smoothedBeat, curStyle, curBgOn);
-            }
-        }
-
-        if (doBokeh && fpBokehCanvas) {
+        if (fpBokehCanvas) {
             const ctx = fpBokehCanvas.getContext('2d');
             if (ctx) {
                 const dpr = Math.min(window.devicePixelRatio || 1, 1.5);
@@ -2646,8 +2531,7 @@ function syncAmbientRuntime() {
                 ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
                 ctx.clearRect(0, 0, w, h);
 
-                const beatBoost = doBeat ? smoothedBeat : 0;
-                const mul = (curMotion === 'soft' ? 0.55 : (curMotion === 'vivid' ? 1.65 : 1)) * (1 + beatBoost * 1.4);
+                const mul = curMotion === 'soft' ? 0.55 : (curMotion === 'vivid' ? 1.65 : 1);
 
                 for (const p of bokehParticles) {
                     p.y += p.vy * mul * dt;
@@ -2662,18 +2546,17 @@ function syncAmbientRuntime() {
                     if (p.x > w + p.r * 1.5) p.x = -p.r;
 
                     const [r, g, b] = currentAmbientPalette[p.colorIdx] || DEFAULT_AMBIENT_PALETTE[0];
-                    const pulseR = p.r * (1 + beatBoost * 0.35);
                     const twinkle = 0.65 + 0.35 * Math.sin(p.phase * 1.6);
-                    const a = Math.min(0.75, p.alpha * twinkle * (1 + beatBoost * 0.65));
+                    const a = Math.min(0.75, p.alpha * twinkle);
 
-                    const grad = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, pulseR);
+                    const grad = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, p.r);
                     grad.addColorStop(0, `rgba(${r}, ${g}, ${b}, ${a.toFixed(3)})`);
                     grad.addColorStop(0.55, `rgba(${r}, ${g}, ${b}, ${(a * 0.42).toFixed(3)})`);
                     grad.addColorStop(1, `rgba(${r}, ${g}, ${b}, 0)`);
 
                     ctx.fillStyle = grad;
                     ctx.beginPath();
-                    ctx.arc(p.x, p.y, pulseR, 0, Math.PI * 2);
+                    ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
                     ctx.fill();
                 }
             }
