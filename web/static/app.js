@@ -116,9 +116,14 @@ let isSwitchingTrack = false;
 let isPlActionsOpen = false;
 let isPlModalOpen = false;
 let isAddTracksModalOpen = false;
+let isTrackPlaylistsModalOpen = false;
+let trackPlaylistsTargetFileId = null;
+let pendingAddFileIdAfterCreate = null;
 let editingPlaylistId = null;
 let selectedModalEmoji = '🎧';
 let pickerSelectedIds = new Set();
+let suppressNextTrackClick = false;
+let suppressNextTabClick = false;
 
 function haptic(style = 'light') {
     if (!userSettings.haptic) return;
@@ -195,6 +200,11 @@ const addTracksCloseBtn = document.getElementById('addTracksCloseBtn');
 const addTracksSearch = document.getElementById('addTracksSearch');
 const addTracksList = document.getElementById('addTracksList');
 const addTracksSaveBtn = document.getElementById('addTracksSaveBtn');
+const trackPlaylistsBackdrop = document.getElementById('trackPlaylistsBackdrop');
+const trackPlaylistsSubtitle = document.getElementById('trackPlaylistsSubtitle');
+const trackPlaylistsCloseBtn = document.getElementById('trackPlaylistsCloseBtn');
+const trackPlaylistsList = document.getElementById('trackPlaylistsList');
+const trackPlaylistsCreateBtn = document.getElementById('trackPlaylistsCreateBtn');
 const scrollTopBtn = document.getElementById('scrollTopBtn');
 const trackListEl = document.getElementById('trackList');
 const trackCountEl = document.getElementById('trackCount');
@@ -874,8 +884,13 @@ function renderPlaylistTabs() {
         btn.type = 'button';
         btn.className = `pl-tab ${activePlaylistId === pl.id ? 'active' : ''}`;
         btn.dataset.plId = String(pl.id);
+        btn.dataset.custom = '1';
         btn.innerHTML = `${escapeHtml(pl.emoji || '🎧')} ${escapeHtml(pl.name)} <span class="pl-tab-count">${pl.track_ids.length}</span>`;
         btn.addEventListener('click', () => {
+            if (suppressNextTabClick) {
+                suppressNextTabClick = false;
+                return;
+            }
             if (activePlaylistId === pl.id) {
                 openPlaylistActions();
             } else {
@@ -918,13 +933,128 @@ function closePlaylistActions() {
     isPlActionsOpen = false;
     plActionsBackdrop.classList.remove('open');
     plActionsBackdrop.setAttribute('aria-hidden', 'true');
-    if (!isSettingsOpen && !isPlModalOpen && !isAddTracksModalOpen) {
+    if (!isSettingsOpen && !isPlModalOpen && !isAddTracksModalOpen && !isTrackPlaylistsModalOpen) {
         document.body.classList.remove('settings-open');
     }
-    if (!isFullPlayerOpen && !isSettingsOpen && !isPlModalOpen && !isAddTracksModalOpen) {
+    if (!isFullPlayerOpen && !isSettingsOpen && !isPlModalOpen && !isAddTracksModalOpen && !isTrackPlaylistsModalOpen) {
         try { tg.BackButton?.hide(); } catch (e) {}
     }
 }
+
+// ===== Drag & Drop Reordering of Playlist Tabs (Long-press) =====
+let tabDragState = null;
+
+function cancelTabLongPress() {
+    if (tabDragState && tabDragState.timer) {
+        clearTimeout(tabDragState.timer);
+        tabDragState.timer = null;
+    }
+}
+
+function finishTabDrag() {
+    if (!tabDragState) return;
+    const state = tabDragState;
+    cancelTabLongPress();
+    tabDragState = null;
+
+    if (!state.active) return;
+
+    state.tabEl.classList.remove('tab-dragging');
+    playlistTabs.classList.remove('reordering');
+
+    const newOrderIds = Array.from(playlistTabs.querySelectorAll('.pl-tab[data-custom="1"]'))
+        .map(el => Number(el.dataset.plId))
+        .filter(id => !Number.isNaN(id));
+
+    const changed = newOrderIds.length === state.initialOrder.length &&
+        newOrderIds.some((id, i) => id !== state.initialOrder[i]);
+
+    if (changed) {
+        const byId = new Map(userPlaylists.map(p => [p.id, p]));
+        userPlaylists = newOrderIds.map(id => byId.get(id)).filter(Boolean);
+        fetch('/api/playlists/reorder', {
+            method: 'PUT',
+            headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+            body: JSON.stringify({ playlist_ids: newOrderIds }),
+        }).catch(() => {});
+        haptic('medium');
+    }
+}
+
+playlistTabs.addEventListener('pointerdown', (e) => {
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
+    if (userPlaylists.length < 2) return;
+    const tabEl = e.target.closest('.pl-tab[data-custom="1"]');
+    if (!tabEl) return;
+
+    const initialOrder = userPlaylists.map(p => p.id);
+    const state = {
+        pointerId: e.pointerId,
+        tabEl,
+        startX: e.clientX,
+        startY: e.clientY,
+        active: false,
+        initialOrder,
+        timer: null,
+    };
+    state.timer = setTimeout(() => {
+        if (tabDragState !== state) return;
+        state.active = true;
+        suppressNextTabClick = true;
+        tabEl.classList.add('tab-dragging');
+        playlistTabs.classList.add('reordering');
+        try { playlistTabs.setPointerCapture(state.pointerId); } catch (err) {}
+        haptic('medium');
+    }, 300);
+
+    tabDragState = state;
+});
+
+playlistTabs.addEventListener('pointermove', (e) => {
+    if (!tabDragState || e.pointerId !== tabDragState.pointerId) return;
+
+    if (!tabDragState.active) {
+        if (Math.abs(e.clientX - tabDragState.startX) > 8 || Math.abs(e.clientY - tabDragState.startY) > 8) {
+            cancelTabLongPress();
+            tabDragState = null;
+        }
+        return;
+    }
+
+    if (e.cancelable) e.preventDefault();
+    const customTabs = Array.from(playlistTabs.querySelectorAll('.pl-tab[data-custom="1"]'));
+    const dragged = tabDragState.tabEl;
+    const curIdx = customTabs.indexOf(dragged);
+    if (curIdx === -1) return;
+
+    for (let i = 0; i < customTabs.length; i++) {
+        const other = customTabs[i];
+        if (other === dragged) continue;
+        const rect = other.getBoundingClientRect();
+        const midX = rect.left + rect.width / 2;
+        if (i < curIdx && e.clientX < midX) {
+            playlistTabs.insertBefore(dragged, other);
+            haptic('light');
+            break;
+        } else if (i > curIdx && e.clientX > midX) {
+            playlistTabs.insertBefore(dragged, other.nextSibling);
+            haptic('light');
+            break;
+        }
+    }
+});
+
+playlistTabs.addEventListener('pointerup', (e) => {
+    if (tabDragState && e.pointerId === tabDragState.pointerId) {
+        finishTabDrag();
+    }
+});
+
+playlistTabs.addEventListener('pointercancel', (e) => {
+    if (tabDragState && e.pointerId === tabDragState.pointerId) {
+        finishTabDrag();
+    }
+});
 
 plMenuBtn.addEventListener('click', openPlaylistActions);
 plActionsCloseBtn.addEventListener('click', closePlaylistActions);
@@ -991,9 +1121,9 @@ function animateTabSwipeSwitch(targetPlId, direction) {
 
 document.addEventListener('touchstart', (e) => {
     if (userPlaylists.length === 0) return;
-    if (isFullPlayerOpen || isSettingsOpen || isPlActionsOpen || isPlModalOpen || isAddTracksModalOpen) return;
+    if (isFullPlayerOpen || isSettingsOpen || isPlActionsOpen || isPlModalOpen || isAddTracksModalOpen || isTrackPlaylistsModalOpen) return;
     if (e.touches.length !== 1) return;
-    if (e.target.closest('.header, .player-bar, .seek-wrapper, .undo-toast, input, button')) return;
+    if (e.target.closest('.header, .player-bar, .seek-wrapper, .undo-toast, .track-swipe-wrap, input, button')) return;
 
     tabSwipeStartX = e.touches[0].clientX;
     tabSwipeStartY = e.touches[0].clientY;
@@ -1097,12 +1227,13 @@ function openPlaylistModal(pl = null) {
 function closePlaylistModal() {
     if (!isPlModalOpen) return;
     isPlModalOpen = false;
+    pendingAddFileIdAfterCreate = null;
     plModalBackdrop.classList.remove('open');
     plModalBackdrop.setAttribute('aria-hidden', 'true');
-    if (!isSettingsOpen && !isAddTracksModalOpen) {
+    if (!isSettingsOpen && !isAddTracksModalOpen && !isPlActionsOpen && !isTrackPlaylistsModalOpen) {
         document.body.classList.remove('settings-open');
     }
-    if (!isFullPlayerOpen && !isSettingsOpen && !isAddTracksModalOpen) {
+    if (!isFullPlayerOpen && !isSettingsOpen && !isAddTracksModalOpen && !isPlActionsOpen && !isTrackPlaylistsModalOpen) {
         try { tg.BackButton?.hide(); } catch (e) {}
     }
 }
@@ -1154,9 +1285,24 @@ plModalSaveBtn.addEventListener('click', async () => {
             });
             if (res.ok) {
                 const data = await res.json();
-                userPlaylists.push(data.playlist);
+                const createdPl = data.playlist;
+                const pendingFid = pendingAddFileIdAfterCreate;
+                pendingAddFileIdAfterCreate = null;
+                userPlaylists.push(createdPl);
+                if (pendingFid) {
+                    try {
+                        const addRes = await fetch(`/api/playlists/${createdPl.id}/tracks`, {
+                            method: 'POST',
+                            headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ file_ids: [pendingFid] }),
+                        });
+                        if (addRes.ok) {
+                            createdPl.track_ids = [pendingFid];
+                        }
+                    } catch (e) {}
+                }
                 closePlaylistModal();
-                selectPlaylistTab(data.playlist.id, true);
+                selectPlaylistTab(createdPl.id, true);
                 haptic('medium');
             } else {
                 const err = await res.json().catch(() => ({}));
@@ -1260,13 +1406,104 @@ function closeAddTracksModal() {
     isAddTracksModalOpen = false;
     addTracksBackdrop.classList.remove('open');
     addTracksBackdrop.setAttribute('aria-hidden', 'true');
-    if (!isSettingsOpen && !isPlModalOpen) {
+    if (!isSettingsOpen && !isPlModalOpen && !isPlActionsOpen && !isTrackPlaylistsModalOpen) {
         document.body.classList.remove('settings-open');
     }
-    if (!isFullPlayerOpen && !isSettingsOpen && !isPlModalOpen) {
+    if (!isFullPlayerOpen && !isSettingsOpen && !isPlModalOpen && !isPlActionsOpen && !isTrackPlaylistsModalOpen) {
         try { tg.BackButton?.hide(); } catch (e) {}
     }
 }
+
+// ===== Quick "Add Track to Playlist" Modal (Swipe Right) =====
+function renderTrackPlaylistsModalList() {
+    const fileId = trackPlaylistsTargetFileId;
+    if (!fileId) return;
+
+    if (userPlaylists.length === 0) {
+        trackPlaylistsList.innerHTML = `<div class="empty-state" style="padding:20px 10px;">У вас пока нет плейлистов — создайте первый ниже</div>`;
+        return;
+    }
+
+    trackPlaylistsList.innerHTML = '';
+    userPlaylists.forEach((pl) => {
+        const hasTrack = pl.track_ids.includes(fileId);
+        const row = document.createElement('div');
+        row.className = `picker-row ${hasTrack ? 'selected' : ''}`;
+        row.innerHTML = `
+            <div class="picker-check">✓</div>
+            <div class="picker-info">
+                <div class="picker-title">${escapeHtml(pl.emoji || '🎧')} ${escapeHtml(pl.name)}</div>
+                <div class="picker-artist">${pl.track_ids.length} треков</div>
+            </div>
+        `;
+        row.addEventListener('click', async () => {
+            const currentlyIn = pl.track_ids.includes(fileId);
+            haptic('light');
+            if (currentlyIn) {
+                pl.track_ids = pl.track_ids.filter(id => id !== fileId);
+                row.classList.remove('selected');
+                row.querySelector('.picker-artist').textContent = `${pl.track_ids.length} треков`;
+                renderPlaylistTabs();
+                if (activePlaylistId === pl.id) applySearchFilter();
+                fetch(`/api/playlists/${pl.id}/tracks?file_id=${encodeURIComponent(fileId)}`, {
+                    method: 'DELETE',
+                    headers: authHeaders(),
+                }).catch(() => {});
+            } else {
+                pl.track_ids = [fileId, ...pl.track_ids];
+                row.classList.add('selected');
+                row.querySelector('.picker-artist').textContent = `${pl.track_ids.length} треков`;
+                renderPlaylistTabs();
+                if (activePlaylistId === pl.id) applySearchFilter();
+                fetch(`/api/playlists/${pl.id}/tracks`, {
+                    method: 'POST',
+                    headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ file_ids: [fileId] }),
+                }).catch(() => {});
+            }
+        });
+        trackPlaylistsList.appendChild(row);
+    });
+}
+
+function openTrackPlaylistsModal(fileId) {
+    const track = allTracks.find(t => t.file_id === fileId);
+    if (!track) return;
+    trackPlaylistsTargetFileId = fileId;
+    trackPlaylistsSubtitle.textContent = `${track.title || track.name} — ${track.performer || 'Spotify'}`;
+    renderTrackPlaylistsModalList();
+
+    isTrackPlaylistsModalOpen = true;
+    document.body.classList.add('settings-open');
+    trackPlaylistsBackdrop.classList.add('open');
+    trackPlaylistsBackdrop.setAttribute('aria-hidden', 'false');
+    try { tg.BackButton?.show(); } catch (e) {}
+}
+
+function closeTrackPlaylistsModal() {
+    if (!isTrackPlaylistsModalOpen) return;
+    isTrackPlaylistsModalOpen = false;
+    trackPlaylistsTargetFileId = null;
+    trackPlaylistsBackdrop.classList.remove('open');
+    trackPlaylistsBackdrop.setAttribute('aria-hidden', 'true');
+    if (!isSettingsOpen && !isPlModalOpen && !isAddTracksModalOpen && !isPlActionsOpen) {
+        document.body.classList.remove('settings-open');
+    }
+    if (!isFullPlayerOpen && !isSettingsOpen && !isPlModalOpen && !isAddTracksModalOpen && !isPlActionsOpen) {
+        try { tg.BackButton?.hide(); } catch (e) {}
+    }
+}
+
+trackPlaylistsCloseBtn.addEventListener('click', closeTrackPlaylistsModal);
+trackPlaylistsBackdrop.addEventListener('click', (e) => {
+    if (e.target === trackPlaylistsBackdrop) closeTrackPlaylistsModal();
+});
+trackPlaylistsCreateBtn.addEventListener('click', () => {
+    const fid = trackPlaylistsTargetFileId;
+    closeTrackPlaylistsModal();
+    pendingAddFileIdAfterCreate = fid;
+    openPlaylistModal(null);
+});
 
 plAddTracksBtn.addEventListener('click', () => {
     closePlaylistActions();
@@ -1364,48 +1601,66 @@ function renderTracks(options = {}) {
 
     trackListEl.innerHTML = '';
     const isPaused = audio.paused;
+    const canReorderTracks = Boolean(activePl) && !searchInput.value.trim() && (userSettings.sortOrder === 'newest' || !userSettings.sortOrder);
+    const deleteSwipeLabel = activePl ? 'Убрать' : 'Удалить';
+
     filteredTracks.forEach((track, idx) => {
         const isCurrent = currentFileId !== null && currentFileId === track.file_id;
-        const item = document.createElement('div');
-        const classes = ['track-item'];
-        if (isCurrent) classes.push('active');
+        const wrap = document.createElement('div');
+        const wrapClasses = ['track-swipe-wrap'];
         if (animateEntrance && idx < 14) {
-            classes.push('entering');
-            item.style.setProperty('--enter-idx', idx);
+            wrapClasses.push('entering');
+            wrap.style.setProperty('--enter-idx', idx);
         }
         if (highlightFileId && track.file_id === highlightFileId) {
-            classes.push('restoring');
+            wrapClasses.push('restoring');
         }
-        item.className = classes.join(' ');
-        item.dataset.fileId = track.file_id;
+        wrap.className = wrapClasses.join(' ');
+        wrap.dataset.fileId = track.file_id;
 
         const coverUrl = track.cover_url;
         const eqHtml = isCurrent
             ? `<div class="eq-overlay ${isPaused ? 'paused' : ''}"><span></span><span></span><span></span></div>`
             : '';
+        const dragHandleHtml = canReorderTracks
+            ? `<div class="drag-handle" title="Перетащить для сортировки" aria-label="Перетащить"><svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><circle cx="9" cy="6" r="2"/><circle cx="15" cy="6" r="2"/><circle cx="9" cy="12" r="2"/><circle cx="15" cy="12" r="2"/><circle cx="9" cy="18" r="2"/><circle cx="15" cy="18" r="2"/></svg></div>`
+            : '';
 
-        item.innerHTML = `
-            <div class="cover-wrapper">
-                <img src="${coverUrl}" alt="" loading="lazy"
-                     onerror="this.style.display='none'; this.nextElementSibling.style.display='block';">
-                <span class="cover-fallback" style="display:none;">🎵</span>
-                ${eqHtml}
+        wrap.innerHTML = `
+            <div class="swipe-bg" aria-hidden="true">
+                <div class="swipe-action swipe-action-left">📂 В плейлист</div>
+                <div class="swipe-action swipe-action-right">🗑 ${deleteSwipeLabel}</div>
             </div>
-            <div class="track-info">
-                <div class="track-title">${escapeHtml(track.title || track.name)}</div>
-                <div class="track-artist">${escapeHtml(track.performer || 'Spotify')}</div>
-            </div>
-            <div class="track-actions">
-                <button class="icon-btn" title="Отправить в чат" data-action="send">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>
-                </button>
-                <button class="icon-btn delete" title="Удалить" data-action="delete">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg>
-                </button>
+            <div class="track-item ${isCurrent ? 'active' : ''}" data-file-id="${escapeHtml(track.file_id)}">
+                ${dragHandleHtml}
+                <div class="cover-wrapper">
+                    <img src="${coverUrl}" alt="" loading="lazy"
+                         onerror="this.style.display='none'; this.nextElementSibling.style.display='block';">
+                    <span class="cover-fallback" style="display:none;">🎵</span>
+                    ${eqHtml}
+                </div>
+                <div class="track-info">
+                    <div class="track-title">${escapeHtml(track.title || track.name)}</div>
+                    <div class="track-artist">${escapeHtml(track.performer || 'Spotify')}</div>
+                </div>
+                <div class="track-actions">
+                    <button class="icon-btn" title="Отправить в чат" data-action="send">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>
+                    </button>
+                    <button class="icon-btn delete" title="${deleteSwipeLabel}" data-action="delete">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg>
+                    </button>
+                </div>
             </div>
         `;
 
+        const item = wrap.querySelector('.track-item');
         item.addEventListener('click', (e) => {
+            if (suppressNextTrackClick) {
+                suppressNextTrackClick = false;
+                return;
+            }
+            if (e.target.closest('.drag-handle')) return;
             const btn = e.target.closest('button');
             if (btn) {
                 e.stopPropagation();
@@ -1422,9 +1677,271 @@ function renderTracks(options = {}) {
             }
         });
 
-        trackListEl.appendChild(item);
+        trackListEl.appendChild(wrap);
     });
 }
+
+// ===== Track Card Swipe (Right -> Add to Playlist, Left -> Delete) =====
+const CARD_SWIPE_THRESHOLD = 74;
+let cardSwipeState = null;
+
+function resetCardSwipeVisual(state) {
+    if (!state) return;
+    state.itemEl.classList.remove('swiping');
+    state.itemEl.style.transform = '';
+    state.bgEl.classList.remove('visible', 'dir-right', 'dir-left', 'armed');
+}
+
+trackListEl.addEventListener('pointerdown', (e) => {
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
+    if (isFullPlayerOpen || isSettingsOpen || isPlActionsOpen || isPlModalOpen || isAddTracksModalOpen || isTrackPlaylistsModalOpen) return;
+    if (trackDragState) return;
+    if (e.target.closest('.drag-handle, button')) return;
+    const wrapEl = e.target.closest('.track-swipe-wrap');
+    if (!wrapEl) return;
+    const itemEl = wrapEl.querySelector('.track-item');
+    const bgEl = wrapEl.querySelector('.swipe-bg');
+    if (!itemEl || !bgEl) return;
+
+    cardSwipeState = {
+        pointerId: e.pointerId,
+        wrapEl,
+        itemEl,
+        bgEl,
+        fileId: wrapEl.dataset.fileId,
+        startX: e.clientX,
+        startY: e.clientY,
+        dx: 0,
+        locked: null,
+        armed: false,
+    };
+});
+
+trackListEl.addEventListener('pointermove', (e) => {
+    if (!cardSwipeState || e.pointerId !== cardSwipeState.pointerId) return;
+    const s = cardSwipeState;
+    const dx = e.clientX - s.startX;
+    const dy = e.clientY - s.startY;
+
+    if (!s.locked) {
+        if (Math.abs(dx) < 10 && Math.abs(dy) < 10) return;
+        if (Math.abs(dx) > Math.abs(dy) * 1.25) {
+            s.locked = 'horizontal';
+            s.itemEl.classList.add('swiping');
+            try { trackListEl.setPointerCapture(s.pointerId); } catch (err) {}
+        } else {
+            s.locked = 'vertical';
+            cardSwipeState = null;
+            return;
+        }
+    }
+
+    if (s.locked !== 'horizontal') return;
+    if (e.cancelable) e.preventDefault();
+
+    const maxSwipe = 128;
+    const clamped = Math.abs(dx) <= 92
+        ? dx
+        : Math.sign(dx) * Math.min(maxSwipe, 92 + (Math.abs(dx) - 92) * 0.35);
+    s.dx = clamped;
+    s.itemEl.style.transform = `translate3d(${clamped}px, 0, 0)`;
+
+    const isRight = clamped > 0;
+    s.bgEl.classList.add('visible');
+    s.bgEl.classList.toggle('dir-right', isRight);
+    s.bgEl.classList.toggle('dir-left', !isRight);
+
+    const nowArmed = Math.abs(clamped) >= CARD_SWIPE_THRESHOLD;
+    if (nowArmed !== s.armed) {
+        s.armed = nowArmed;
+        s.bgEl.classList.toggle('armed', nowArmed);
+        if (nowArmed) haptic('light');
+    }
+});
+
+function endCardSwipe(e, cancelled = false) {
+    if (!cardSwipeState || (e && e.pointerId !== cardSwipeState.pointerId)) return;
+    const s = cardSwipeState;
+    cardSwipeState = null;
+
+    if (s.locked !== 'horizontal') return;
+    suppressNextTrackClick = true;
+    setTimeout(() => { suppressNextTrackClick = false; }, 260);
+
+    const triggered = !cancelled && Math.abs(s.dx) >= CARD_SWIPE_THRESHOLD;
+    const isRight = s.dx > 0;
+
+    resetCardSwipeVisual(s);
+
+    if (triggered) {
+        if (isRight) {
+            haptic('medium');
+            openTrackPlaylistsModal(s.fileId);
+        } else {
+            deleteTrack(s.fileId);
+        }
+    }
+}
+
+trackListEl.addEventListener('pointerup', (e) => endCardSwipe(e, false));
+trackListEl.addEventListener('pointercancel', (e) => endCardSwipe(e, true));
+
+// ===== Drag & Drop Reordering of Tracks inside Custom Playlists =====
+let trackDragState = null;
+
+function stopTrackDragAutoScroll() {
+    if (trackDragState && trackDragState.scrollRafId !== null) {
+        cancelAnimationFrame(trackDragState.scrollRafId);
+        trackDragState.scrollRafId = null;
+    }
+}
+
+function updateTrackDragPosition(clientY) {
+    if (!trackDragState) return;
+    const s = trackDragState;
+    const dy = (clientY - s.anchorClientY) + (window.scrollY - s.anchorScrollY);
+    s.wrapEl.style.transform = `translate3d(0, ${dy}px, 0)`;
+
+    const children = Array.from(trackListEl.children);
+    const curIdx = children.indexOf(s.wrapEl);
+    if (curIdx === -1) return;
+
+    const draggedRect = s.wrapEl.getBoundingClientRect();
+    const draggedMidY = draggedRect.top + draggedRect.height / 2;
+
+    if (curIdx > 0) {
+        const prev = children[curIdx - 1];
+        const prevRect = prev.getBoundingClientRect();
+        if (draggedMidY < prevRect.top + prevRect.height / 2) {
+            const beforeTop = s.wrapEl.getBoundingClientRect().top;
+            trackListEl.insertBefore(s.wrapEl, prev);
+            const afterTop = s.wrapEl.getBoundingClientRect().top;
+            s.anchorClientY += (afterTop - beforeTop);
+            const newDy = (clientY - s.anchorClientY) + (window.scrollY - s.anchorScrollY);
+            s.wrapEl.style.transform = `translate3d(0, ${newDy}px, 0)`;
+            haptic('light');
+            return;
+        }
+    }
+
+    if (curIdx < children.length - 1) {
+        const next = children[curIdx + 1];
+        const nextRect = next.getBoundingClientRect();
+        if (draggedMidY > nextRect.top + nextRect.height / 2) {
+            const beforeTop = s.wrapEl.getBoundingClientRect().top;
+            trackListEl.insertBefore(s.wrapEl, next.nextSibling);
+            const afterTop = s.wrapEl.getBoundingClientRect().top;
+            s.anchorClientY += (afterTop - beforeTop);
+            const newDy = (clientY - s.anchorClientY) + (window.scrollY - s.anchorScrollY);
+            s.wrapEl.style.transform = `translate3d(0, ${newDy}px, 0)`;
+            haptic('light');
+        }
+    }
+}
+
+function runTrackDragAutoScroll() {
+    if (!trackDragState) return;
+    const s = trackDragState;
+    const edge = 80;
+    let delta = 0;
+    if (s.lastClientY < edge) {
+        delta = -Math.ceil((edge - s.lastClientY) / 10);
+    } else if (s.lastClientY > window.innerHeight - edge) {
+        delta = Math.ceil((s.lastClientY - (window.innerHeight - edge)) / 10);
+    }
+    if (delta !== 0) {
+        window.scrollBy(0, delta);
+        updateTrackDragPosition(s.lastClientY);
+        s.scrollRafId = requestAnimationFrame(runTrackDragAutoScroll);
+    } else {
+        s.scrollRafId = null;
+    }
+}
+
+function finishTrackDrag() {
+    if (!trackDragState) return;
+    const s = trackDragState;
+    stopTrackDragAutoScroll();
+    trackDragState = null;
+
+    s.wrapEl.classList.remove('drag-active');
+    s.wrapEl.style.transform = '';
+    suppressNextTrackClick = true;
+    setTimeout(() => { suppressNextTrackClick = false; }, 220);
+
+    const activePl = getActiveCustomPlaylist();
+    if (!activePl) return;
+
+    const newIds = Array.from(trackListEl.children)
+        .map(el => el.dataset && el.dataset.fileId)
+        .filter(Boolean);
+
+    const changed = newIds.length === s.initialIds.length &&
+        newIds.some((id, idx) => id !== s.initialIds[idx]);
+
+    if (changed) {
+        activePl.track_ids = newIds;
+        filteredTracks = getSortedTracks(getTracksForActivePlaylist());
+        fetch(`/api/playlists/${activePl.id}/reorder`, {
+            method: 'PUT',
+            headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+            body: JSON.stringify({ file_ids: newIds }),
+        }).catch(() => {});
+        haptic('medium');
+    }
+}
+
+trackListEl.addEventListener('pointerdown', (e) => {
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
+    const handle = e.target.closest('.drag-handle');
+    if (!handle) return;
+    const wrapEl = handle.closest('.track-swipe-wrap');
+    if (!wrapEl) return;
+
+    if (e.cancelable) e.preventDefault();
+    const initialIds = Array.from(trackListEl.children)
+        .map(el => el.dataset && el.dataset.fileId)
+        .filter(Boolean);
+
+    trackDragState = {
+        pointerId: e.pointerId,
+        wrapEl,
+        anchorClientY: e.clientY,
+        anchorScrollY: window.scrollY,
+        lastClientY: e.clientY,
+        initialIds,
+        scrollRafId: null,
+    };
+
+    wrapEl.classList.add('drag-active');
+    try { trackListEl.setPointerCapture(e.pointerId); } catch (err) {}
+    haptic('medium');
+});
+
+trackListEl.addEventListener('pointermove', (e) => {
+    if (!trackDragState || e.pointerId !== trackDragState.pointerId) return;
+    if (e.cancelable) e.preventDefault();
+    trackDragState.lastClientY = e.clientY;
+    updateTrackDragPosition(e.clientY);
+    if (trackDragState.scrollRafId === null) {
+        const edge = 80;
+        if (e.clientY < edge || e.clientY > window.innerHeight - edge) {
+            trackDragState.scrollRafId = requestAnimationFrame(runTrackDragAutoScroll);
+        }
+    }
+});
+
+trackListEl.addEventListener('pointerup', (e) => {
+    if (trackDragState && e.pointerId === trackDragState.pointerId) {
+        finishTrackDrag();
+    }
+});
+
+trackListEl.addEventListener('pointercancel', (e) => {
+    if (trackDragState && e.pointerId === trackDragState.pointerId) {
+        finishTrackDrag();
+    }
+});
 
 function setMarqueeText(el, text) {
     let inner = el.querySelector('.marquee-inner');
@@ -1529,7 +2046,9 @@ try {
 
 try {
     tg.BackButton?.onClick(() => {
-        if (isAddTracksModalOpen) {
+        if (isTrackPlaylistsModalOpen) {
+            closeTrackPlaylistsModal();
+        } else if (isAddTracksModalOpen) {
             closeAddTracksModal();
         } else if (isPlModalOpen) {
             closePlaylistModal();
@@ -1545,7 +2064,8 @@ try {
 
 document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') {
-        if (isAddTracksModalOpen) closeAddTracksModal();
+        if (isTrackPlaylistsModalOpen) closeTrackPlaylistsModal();
+        else if (isAddTracksModalOpen) closeAddTracksModal();
         else if (isPlModalOpen) closePlaylistModal();
         else if (isPlActionsOpen) closePlaylistActions();
         else if (isSettingsOpen) closeSettings();
@@ -1815,9 +2335,10 @@ function syncActiveTrackInDOM() {
     });
 
     if (!currentFileId) return;
-    const nextItem = Array.from(trackListEl.children).find(
+    const nextWrap = Array.from(trackListEl.children).find(
         (el) => el.dataset && el.dataset.fileId === currentFileId
     );
+    const nextItem = nextWrap ? (nextWrap.querySelector('.track-item') || nextWrap) : null;
     if (!nextItem) return;
 
     nextItem.classList.add('active');

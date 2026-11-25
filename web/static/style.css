@@ -223,6 +223,23 @@ body.has-player .scroll-top-btn {
     color: var(--text-primary);
 }
 
+.pl-tab.tab-dragging {
+    opacity: 0.92;
+    transform: scale(1.06);
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
+    z-index: 5;
+    position: relative;
+    transition: none !important;
+    user-select: none;
+    -webkit-user-select: none;
+}
+
+.playlist-tabs.reordering {
+    touch-action: none;
+    user-select: none;
+    -webkit-user-select: none;
+}
+
 /* ===== Playlist Action Sheet & Empty CTA ===== */
 .action-sheet-list {
     display: flex;
@@ -408,7 +425,101 @@ body.has-player .scroll-top-btn {
     transition: transform 0.14s cubic-bezier(0.4, 0, 1, 1), opacity 0.14s ease !important;
 }
 
+.track-swipe-wrap {
+    position: relative;
+    border-radius: 14px;
+    overflow: hidden;
+    touch-action: pan-y;
+}
+
+.track-swipe-wrap.entering {
+    opacity: 0;
+    animation: cardEnter 0.32s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+    animation-delay: calc(var(--enter-idx, 0) * 28ms);
+}
+
+.track-swipe-wrap.restoring {
+    animation: cardRestore 0.28s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+.track-swipe-wrap.removing {
+    opacity: 0;
+    transform: translateX(-28px);
+    max-height: 0 !important;
+    margin-top: -8px;
+    overflow: hidden;
+    pointer-events: none;
+    transition:
+        opacity 0.2s ease,
+        transform 0.22s cubic-bezier(0.4, 0, 0.2, 1),
+        max-height 0.22s cubic-bezier(0.4, 0, 0.2, 1),
+        margin 0.22s ease;
+}
+
+.track-swipe-wrap.drag-active {
+    z-index: 20;
+    overflow: visible;
+}
+
+.track-swipe-wrap.drag-active .track-item {
+    box-shadow: 0 12px 30px rgba(0, 0, 0, 0.42);
+    border-color: var(--accent);
+    transform: scale(1.015);
+    transition: box-shadow 0.15s ease, border-color 0.15s ease;
+}
+
+.swipe-bg {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.12s ease;
+}
+
+.swipe-bg.visible {
+    opacity: 1;
+}
+
+.swipe-action {
+    height: 100%;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 0 18px;
+    font-size: 13px;
+    font-weight: 700;
+    color: #ffffff;
+    opacity: 0;
+    transform: scale(0.92);
+    transition: opacity 0.12s ease, transform 0.14s ease;
+}
+
+.swipe-bg.dir-right {
+    background: var(--accent);
+}
+
+.swipe-bg.dir-right .swipe-action-left {
+    opacity: 1;
+}
+
+.swipe-bg.dir-left {
+    background: var(--danger);
+}
+
+.swipe-bg.dir-left .swipe-action-right {
+    opacity: 1;
+}
+
+.swipe-bg.armed .swipe-action {
+    transform: scale(1.06);
+}
+
 .track-item {
+    position: relative;
+    z-index: 1;
     display: flex;
     align-items: center;
     gap: 12px;
@@ -416,45 +527,65 @@ body.has-player .scroll-top-btn {
     background: var(--bg-card);
     border-radius: 14px;
     cursor: pointer;
-    transition: background 0.2s, transform 0.1s;
+    transition: background 0.2s, transform 0.22s cubic-bezier(0.22, 1, 0.36, 1);
     border: 1px solid var(--border-subtle);
+    will-change: transform;
+}
+
+.track-item.swiping {
+    transition: none !important;
 }
 
 .track-item:active {
     transform: scale(0.99);
 }
 
-.track-item.active {
-    background: color-mix(in srgb, var(--accent) 13%, transparent);
-    border-color: color-mix(in srgb, var(--accent) 42%, transparent);
+.track-item.swiping:active {
+    transform: none;
 }
 
-.track-item.entering {
-    opacity: 0;
-    animation: cardEnter 0.32s cubic-bezier(0.22, 1, 0.36, 1) forwards;
-    animation-delay: calc(var(--enter-idx, 0) * 28ms);
+.drag-handle {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 36px;
+    margin-left: -4px;
+    margin-right: -4px;
+    color: var(--text-secondary);
+    opacity: 0.55;
+    cursor: grab;
+    touch-action: none;
+    flex-shrink: 0;
+    user-select: none;
+    -webkit-user-select: none;
+    transition: opacity 0.15s ease, color 0.15s ease;
 }
 
-.track-item.restoring {
-    animation: cardRestore 0.28s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+.drag-handle:active {
+    cursor: grabbing;
+    opacity: 1;
+    color: var(--accent);
 }
 
-.track-item.removing {
-    opacity: 0;
-    transform: translateX(-28px);
-    max-height: 0 !important;
-    padding-top: 0;
-    padding-bottom: 0;
-    margin-top: -8px;
-    border-width: 0;
+.tp-header-text {
+    min-width: 0;
+    flex: 1;
+    padding-right: 8px;
+}
+
+.tp-subtitle {
+    font-size: 12px;
+    color: var(--text-secondary);
+    white-space: nowrap;
     overflow: hidden;
-    pointer-events: none;
-    transition:
-        opacity 0.2s ease,
-        transform 0.22s cubic-bezier(0.4, 0, 0.2, 1),
-        max-height 0.22s cubic-bezier(0.4, 0, 0.2, 1),
-        padding 0.22s ease,
-        margin 0.22s ease;
+    text-overflow: ellipsis;
+    margin-top: 2px;
+}
+
+.track-item.active {
+    background: color-mix(in srgb, var(--accent) 13%, var(--bg-card));
+    border-color: color-mix(in srgb, var(--accent) 42%, transparent);
 }
 
 @keyframes cardEnter {
@@ -1353,10 +1484,19 @@ body.compact-list .track-list {
     gap: 5px;
 }
 
+body.compact-list .track-swipe-wrap {
+    border-radius: 11px;
+}
+
 body.compact-list .track-item {
     padding: 6px 8px;
     gap: 10px;
     border-radius: 11px;
+}
+
+body.compact-list .drag-handle {
+    width: 18px;
+    height: 30px;
 }
 
 body.compact-list .cover-wrapper {
@@ -1450,14 +1590,14 @@ body.no-marquee .marquee.scrolling .marquee-inner {
 
 body.reduced-motion .fp-ctrl-btn.play-pause.is-playing,
 body.reduced-motion .eq-overlay span,
-body.reduced-motion .track-item.entering,
-body.reduced-motion .track-item.restoring,
+body.reduced-motion .track-swipe-wrap.entering,
+body.reduced-motion .track-swipe-wrap.restoring,
 body.reduced-motion .marquee.scrolling .marquee-inner,
 body.reduced-motion.vinyl-cover .fp-art-box img {
     animation: none !important;
 }
 
-body.reduced-motion .track-item.entering {
+body.reduced-motion .track-swipe-wrap.entering {
     opacity: 1;
     transform: none;
 }
