@@ -137,6 +137,14 @@ let selectedModalEmoji = '🎧';
 let pickerSelectedIds = new Set();
 let suppressNextTrackClick = false;
 let suppressNextTabClick = false;
+let audioCtx = null;
+let audioAnalyser = null;
+let audioSourceNode = null;
+let audioFreqData = null;
+let smoothedBeat = 0;
+let bokehParticles = [];
+let ambientRafId = null;
+let lastAmbientFrameTime = 0;
 
 function haptic(style = 'light') {
     if (!userSettings.haptic) return;
@@ -2448,12 +2456,6 @@ function extractCoverPalette(img, coverUrl) {
     }
 }
 
-let audioCtx = null;
-let audioAnalyser = null;
-let audioSourceNode = null;
-let audioFreqData = null;
-let smoothedBeat = 0;
-
 function ensureAudioAnalyser() {
     if (audioAnalyser) {
         if (audioCtx && audioCtx.state === 'suspended') {
@@ -2482,9 +2484,6 @@ function ensureAudioAnalyser() {
 }
 
 const BOKEH_COUNT = 26;
-let bokehParticles = [];
-let ambientRafId = null;
-let lastAmbientFrameTime = 0;
 
 function initBokehParticles(w, h) {
     bokehParticles = Array.from({ length: BOKEH_COUNT }, (_, idx) => ({
