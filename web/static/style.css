@@ -223,58 +223,61 @@ body.has-player .scroll-top-btn {
     color: var(--text-primary);
 }
 
-.playlist-toolbar {
+/* ===== Playlist Action Sheet & Empty CTA ===== */
+.action-sheet-list {
     display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 10px;
-    padding: 10px 16px 2px;
-}
-
-.pl-tool-actions {
-    display: flex;
-    align-items: center;
+    flex-direction: column;
     gap: 8px;
 }
 
-.pl-tool-btn {
-    display: inline-flex;
+.action-sheet-btn {
+    width: 100%;
+    display: flex;
     align-items: center;
-    justify-content: center;
-    gap: 6px;
-    padding: 8px 14px;
-    border-radius: 11px;
+    gap: 12px;
+    padding: 13px 16px;
+    border-radius: 13px;
     border: 1px solid var(--border-subtle);
     background: var(--bg-card);
     color: var(--text-primary);
-    font-size: 13px;
+    font-size: 15px;
     font-weight: 600;
+    text-align: left;
     cursor: pointer;
-    transition: background 0.2s ease, border-color 0.2s ease, color 0.2s ease, transform 0.12s ease;
+    transition: background 0.15s ease, transform 0.12s ease;
 }
 
-.pl-tool-btn:active {
-    transform: scale(0.95);
+.action-sheet-btn:active {
+    transform: scale(0.98);
+    background: var(--bg-card-hover);
 }
 
-.pl-tool-btn.primary {
-    background: color-mix(in srgb, var(--accent) 16%, transparent);
-    border-color: color-mix(in srgb, var(--accent) 40%, transparent);
-    color: var(--accent);
-}
-
-.pl-tool-btn.icon-only {
-    width: 36px;
-    height: 36px;
-    padding: 0;
-    border-radius: 50%;
-    color: var(--text-secondary);
-}
-
-.pl-tool-btn.danger:hover {
-    background: rgba(239, 68, 68, 0.16);
-    border-color: rgba(239, 68, 68, 0.4);
+.action-sheet-btn.danger {
     color: var(--danger);
+}
+
+.action-sheet-icon {
+    font-size: 18px;
+    width: 24px;
+    text-align: center;
+}
+
+.empty-cta-btn {
+    margin-top: 16px;
+    padding: 11px 20px;
+    border-radius: 99px;
+    border: none;
+    background: var(--accent);
+    color: #ffffff;
+    font-size: 14px;
+    font-weight: 700;
+    cursor: pointer;
+    box-shadow: 0 6px 20px color-mix(in srgb, var(--accent) 35%, transparent);
+    transition: transform 0.12s ease, background 0.2s ease;
+}
+
+.empty-cta-btn:active {
+    transform: scale(0.95);
 }
 
 /* ===== Playlist Modals ===== */

@@ -108,6 +108,7 @@ let isShuffle = false;
 let isSeeking = false;
 let isFullPlayerOpen = false;
 let isSwitchingTrack = false;
+let isPlActionsOpen = false;
 let isPlModalOpen = false;
 let isAddTracksModalOpen = false;
 let editingPlaylistId = null;
@@ -168,7 +169,10 @@ function getCurrentIndex() {
 const audio = document.getElementById('audioElement');
 const headerEl = document.getElementById('headerEl');
 const playlistTabs = document.getElementById('playlistTabs');
-const playlistToolbar = document.getElementById('playlistToolbar');
+const plMenuBtn = document.getElementById('plMenuBtn');
+const plActionsBackdrop = document.getElementById('plActionsBackdrop');
+const plActionsTitle = document.getElementById('plActionsTitle');
+const plActionsCloseBtn = document.getElementById('plActionsCloseBtn');
 const plAddTracksBtn = document.getElementById('plAddTracksBtn');
 const plEditBtn = document.getElementById('plEditBtn');
 const plDeleteBtn = document.getElementById('plDeleteBtn');
@@ -866,7 +870,13 @@ function renderPlaylistTabs() {
         btn.className = `pl-tab ${activePlaylistId === pl.id ? 'active' : ''}`;
         btn.dataset.plId = String(pl.id);
         btn.innerHTML = `${escapeHtml(pl.emoji || '🎧')} ${escapeHtml(pl.name)} <span class="pl-tab-count">${pl.track_ids.length}</span>`;
-        btn.addEventListener('click', () => selectPlaylistTab(pl.id));
+        btn.addEventListener('click', () => {
+            if (activePlaylistId === pl.id) {
+                openPlaylistActions();
+            } else {
+                selectPlaylistTab(pl.id);
+            }
+        });
         playlistTabs.appendChild(btn);
     });
 
@@ -883,8 +893,39 @@ function renderPlaylistTabs() {
         activeTabEl.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' });
     }
 
-    playlistToolbar.style.display = activePlaylistId === 'all' ? 'none' : 'flex';
+    plMenuBtn.style.display = activePlaylistId === 'all' ? 'none' : 'flex';
 }
+
+function openPlaylistActions() {
+    const pl = getActiveCustomPlaylist();
+    if (!pl || isPlActionsOpen) return;
+    isPlActionsOpen = true;
+    plActionsTitle.textContent = `${pl.emoji || '🎧'} ${pl.name}`;
+    document.body.classList.add('settings-open');
+    plActionsBackdrop.classList.add('open');
+    plActionsBackdrop.setAttribute('aria-hidden', 'false');
+    haptic('light');
+    try { tg.BackButton?.show(); } catch (e) {}
+}
+
+function closePlaylistActions() {
+    if (!isPlActionsOpen) return;
+    isPlActionsOpen = false;
+    plActionsBackdrop.classList.remove('open');
+    plActionsBackdrop.setAttribute('aria-hidden', 'true');
+    if (!isSettingsOpen && !isPlModalOpen && !isAddTracksModalOpen) {
+        document.body.classList.remove('settings-open');
+    }
+    if (!isFullPlayerOpen && !isSettingsOpen && !isPlModalOpen && !isAddTracksModalOpen) {
+        try { tg.BackButton?.hide(); } catch (e) {}
+    }
+}
+
+plMenuBtn.addEventListener('click', openPlaylistActions);
+plActionsCloseBtn.addEventListener('click', closePlaylistActions);
+plActionsBackdrop.addEventListener('click', (e) => {
+    if (e.target === plActionsBackdrop) closePlaylistActions();
+});
 
 function getAllTabIds() {
     return ['all', ...userPlaylists.map(p => p.id)];
@@ -945,7 +986,7 @@ function animateTabSwipeSwitch(targetPlId, direction) {
 
 document.addEventListener('touchstart', (e) => {
     if (userPlaylists.length === 0) return;
-    if (isFullPlayerOpen || isSettingsOpen || isPlModalOpen || isAddTracksModalOpen) return;
+    if (isFullPlayerOpen || isSettingsOpen || isPlActionsOpen || isPlModalOpen || isAddTracksModalOpen) return;
     if (e.touches.length !== 1) return;
     if (e.target.closest('.header, .player-bar, .seek-wrapper, .undo-toast, input, button')) return;
 
@@ -1125,11 +1166,13 @@ plModalSaveBtn.addEventListener('click', async () => {
 
 plEditBtn.addEventListener('click', () => {
     const pl = getActiveCustomPlaylist();
+    closePlaylistActions();
     if (pl) openPlaylistModal(pl);
 });
 
 plDeleteBtn.addEventListener('click', async () => {
     const pl = getActiveCustomPlaylist();
+    closePlaylistActions();
     if (!pl) return;
     const doDelete = async () => {
         try {
@@ -1220,7 +1263,10 @@ function closeAddTracksModal() {
     }
 }
 
-plAddTracksBtn.addEventListener('click', openAddTracksModal);
+plAddTracksBtn.addEventListener('click', () => {
+    closePlaylistActions();
+    openAddTracksModal();
+});
 addTracksCloseBtn.addEventListener('click', closeAddTracksModal);
 addTracksBackdrop.addEventListener('click', (e) => {
     if (e.target === addTracksBackdrop) closeAddTracksModal();
@@ -1297,7 +1343,14 @@ function renderTracks(options = {}) {
 
     if (filteredTracks.length === 0) {
         if (activePl && !searchInput.value.trim()) {
-            trackListEl.innerHTML = `<div class="empty-state">В плейлисте «${escapeHtml(activePl.name)}» пока пусто 🎧<br><span style="font-size:13px;opacity:0.75;">Нажми «➕ Добавить треки» сверху</span></div>`;
+            trackListEl.innerHTML = `
+                <div class="empty-state">
+                    <div>В плейлисте «${escapeHtml(activePl.name)}» пока пусто 🎧</div>
+                    <button id="emptyAddTracksBtn" class="empty-cta-btn" type="button">➕ Добавить треки</button>
+                </div>
+            `;
+            const emptyBtn = document.getElementById('emptyAddTracksBtn');
+            if (emptyBtn) emptyBtn.addEventListener('click', openAddTracksModal);
         } else {
             trackListEl.innerHTML = `<div class="empty-state">Плейлист пуст 🎧</div>`;
         }
@@ -1475,6 +1528,8 @@ try {
             closeAddTracksModal();
         } else if (isPlModalOpen) {
             closePlaylistModal();
+        } else if (isPlActionsOpen) {
+            closePlaylistActions();
         } else if (isSettingsOpen) {
             closeSettings();
         } else if (isFullPlayerOpen) {
@@ -1487,6 +1542,7 @@ document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') {
         if (isAddTracksModalOpen) closeAddTracksModal();
         else if (isPlModalOpen) closePlaylistModal();
+        else if (isPlActionsOpen) closePlaylistActions();
         else if (isSettingsOpen) closeSettings();
         else if (isFullPlayerOpen) closeFullPlayer();
     }
