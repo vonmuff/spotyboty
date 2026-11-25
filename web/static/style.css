@@ -1268,6 +1268,24 @@ body.settings-open {
     text-shadow: 0 1px 3px rgba(0, 0, 0, 0.45);
 }
 
+.settings-label-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 10px;
+}
+
+.settings-label-row .settings-label {
+    margin-bottom: 0;
+}
+
+.sleep-badge {
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--accent);
+    font-variant-numeric: tabular-nums;
+}
+
 .segmented-control {
     display: grid;
     grid-template-columns: repeat(3, 1fr);
@@ -1280,6 +1298,14 @@ body.settings-open {
 
 .segmented-control.segmented-2 {
     grid-template-columns: repeat(2, 1fr);
+}
+
+.segmented-control.segmented-4 {
+    grid-template-columns: repeat(4, 1fr);
+}
+
+.segmented-control.segmented-5 {
+    grid-template-columns: repeat(5, 1fr);
 }
 
 .seg-btn {

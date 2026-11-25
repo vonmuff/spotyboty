@@ -18,6 +18,9 @@ const DEFAULT_SETTINGS = {
     accent: 'spotify',
     fpTheme: 'auto', // 'auto' | 'dark' | 'light'
     density: 'normal', // 'normal' | 'compact'
+    playbackRate: 1,
+    audioFade: true,
+    autoNext: true,
     equalizer: true,
     ambientBg: true,
     showSendBtn: true,
@@ -192,6 +195,11 @@ const settingsCloseBtn = document.getElementById('settingsCloseBtn');
 const accentPalette = document.getElementById('accentPalette');
 const fpThemeSegment = document.getElementById('fpThemeSegment');
 const densitySegment = document.getElementById('densitySegment');
+const sleepSegment = document.getElementById('sleepSegment');
+const sleepTimerBadge = document.getElementById('sleepTimerBadge');
+const speedSegment = document.getElementById('speedSegment');
+const optAudioFade = document.getElementById('optAudioFade');
+const optAutoNext = document.getElementById('optAutoNext');
 const optEqualizer = document.getElementById('optEqualizer');
 const optAmbientBg = document.getElementById('optAmbientBg');
 const optShowSendBtn = document.getElementById('optShowSendBtn');
@@ -200,6 +208,150 @@ const optRememberLast = document.getElementById('optRememberLast');
 const optAutoScroll = document.getElementById('optAutoScroll');
 const optHaptic = document.getElementById('optHaptic');
 const settingsResetBtn = document.getElementById('settingsResetBtn');
+
+// ===== Audio Fade & Sleep Timer =====
+let audioFadeRafId = null;
+let sleepMode = 'off'; // 'off' | '15' | '30' | '60' | 'track'
+let sleepEndAt = 0;
+let sleepIntervalId = null;
+let sleepFadeStarted = false;
+
+function cancelAudioFade() {
+    if (audioFadeRafId !== null) {
+        cancelAnimationFrame(audioFadeRafId);
+        audioFadeRafId = null;
+    }
+}
+
+function fadeAudioVolume(fromVol, toVol, durationMs, onDone) {
+    cancelAudioFade();
+    const start = performance.now();
+    try {
+        audio.volume = fromVol;
+    } catch (e) {
+        if (onDone) onDone();
+        return;
+    }
+    function step(now) {
+        const p = Math.min(1, (now - start) / durationMs);
+        try {
+            audio.volume = Math.max(0, Math.min(1, fromVol + (toVol - fromVol) * p));
+        } catch (e) {}
+        if (p < 1) {
+            audioFadeRafId = requestAnimationFrame(step);
+        } else {
+            audioFadeRafId = null;
+            if (onDone) onDone();
+        }
+    }
+    audioFadeRafId = requestAnimationFrame(step);
+}
+
+function playWithFade() {
+    cancelAudioFade();
+    audio.playbackRate = Number(userSettings.playbackRate) || 1;
+    if (!userSettings.audioFade) {
+        try { audio.volume = 1; } catch (e) {}
+        audio.play().catch(() => {});
+        return;
+    }
+    try { audio.volume = 0.05; } catch (e) {}
+    const p = audio.play();
+    if (p && typeof p.then === 'function') {
+        p.then(() => fadeAudioVolume(0.05, 1, 240)).catch(() => {
+            try { audio.volume = 1; } catch (e) {}
+        });
+    } else {
+        fadeAudioVolume(0.05, 1, 240);
+    }
+}
+
+function pauseWithFade() {
+    cancelAudioFade();
+    if (!userSettings.audioFade || audio.paused) {
+        audio.pause();
+        try { audio.volume = 1; } catch (e) {}
+        return;
+    }
+    const startVol = typeof audio.volume === 'number' ? audio.volume : 1;
+    fadeAudioVolume(startVol, 0, 220, () => {
+        audio.pause();
+        try { audio.volume = 1; } catch (e) {}
+    });
+}
+
+function updateSleepBadge() {
+    if (sleepMode === 'off') {
+        sleepTimerBadge.textContent = '';
+    } else if (sleepMode === 'track') {
+        sleepTimerBadge.textContent = 'После трека';
+    } else {
+        const remSec = Math.max(0, Math.ceil((sleepEndAt - Date.now()) / 1000));
+        sleepTimerBadge.textContent = `Осталось ${formatTime(remSec)}`;
+    }
+}
+
+function clearSleepTimer() {
+    sleepMode = 'off';
+    sleepEndAt = 0;
+    sleepFadeStarted = false;
+    if (sleepIntervalId !== null) {
+        clearInterval(sleepIntervalId);
+        sleepIntervalId = null;
+    }
+    updateSleepBadge();
+    syncSettingsUI();
+}
+
+function setSleepTimer(mode) {
+    if (sleepIntervalId !== null) {
+        clearInterval(sleepIntervalId);
+        sleepIntervalId = null;
+    }
+    sleepMode = mode;
+    sleepFadeStarted = false;
+
+    if (mode === 'off' || mode === 'track') {
+        sleepEndAt = 0;
+        updateSleepBadge();
+        syncSettingsUI();
+        return;
+    }
+
+    const minutes = parseInt(mode, 10);
+    if (!minutes || isNaN(minutes)) {
+        clearSleepTimer();
+        return;
+    }
+
+    sleepEndAt = Date.now() + minutes * 60 * 1000;
+    updateSleepBadge();
+    syncSettingsUI();
+
+    sleepIntervalId = setInterval(() => {
+        const remMs = sleepEndAt - Date.now();
+        updateSleepBadge();
+        if (remMs <= 5000 && !sleepFadeStarted && !audio.paused) {
+            sleepFadeStarted = true;
+            const curVol = typeof audio.volume === 'number' ? audio.volume : 1;
+            fadeAudioVolume(curVol, 0, Math.max(400, remMs), () => {
+                audio.pause();
+                try { audio.volume = 1; } catch (e) {}
+                clearSleepTimer();
+            });
+        } else if (remMs <= 0) {
+            audio.pause();
+            try { audio.volume = 1; } catch (e) {}
+            clearSleepTimer();
+        }
+    }, 500);
+}
+
+function applyPlaybackRate() {
+    try {
+        audio.playbackRate = Number(userSettings.playbackRate) || 1;
+    } catch (e) {}
+}
 
 function syncSettingsUI() {
     accentPalette.querySelectorAll('.accent-swatch').forEach((btn) => {
@@ -211,6 +363,14 @@ function syncSettingsUI() {
     densitySegment.querySelectorAll('.seg-btn').forEach((btn) => {
         btn.classList.toggle('active', btn.dataset.density === userSettings.density);
     });
+    sleepSegment.querySelectorAll('.seg-btn').forEach((btn) => {
+        btn.classList.toggle('active', btn.dataset.sleep === sleepMode);
+    });
+    speedSegment.querySelectorAll('.seg-btn').forEach((btn) => {
+        btn.classList.toggle('active', Number(btn.dataset.speed) === Number(userSettings.playbackRate));
+    });
+    optAudioFade.checked = Boolean(userSettings.audioFade);
+    optAutoNext.checked = Boolean(userSettings.autoNext);
     optEqualizer.checked = Boolean(userSettings.equalizer);
     optAmbientBg.checked = Boolean(userSettings.ambientBg);
     optShowSendBtn.checked = Boolean(userSettings.showSendBtn);
@@ -357,6 +517,35 @@ densitySegment.addEventListener('click', (e) => {
     haptic('light');
 });
 
+sleepSegment.addEventListener('click', (e) => {
+    const btn = e.target.closest('.seg-btn');
+    if (!btn) return;
+    setSleepTimer(btn.dataset.sleep);
+    haptic('light');
+});
+
+speedSegment.addEventListener('click', (e) => {
+    const btn = e.target.closest('.seg-btn');
+    if (!btn) return;
+    userSettings.playbackRate = Number(btn.dataset.speed) || 1;
+    saveUserSettings();
+    applyPlaybackRate();
+    syncSettingsUI();
+    haptic('light');
+});
+
+optAudioFade.addEventListener('change', () => {
+    userSettings.audioFade = optAudioFade.checked;
+    saveUserSettings();
+    haptic('light');
+});
+
+optAutoNext.addEventListener('change', () => {
+    userSettings.autoNext = optAutoNext.checked;
+    saveUserSettings();
+    haptic('light');
+});
+
 optEqualizer.addEventListener('change', () => {
     userSettings.equalizer = optEqualizer.checked;
     saveUserSettings();
@@ -410,12 +599,15 @@ optHaptic.addEventListener('change', () => {
 settingsResetBtn.addEventListener('click', () => {
     userSettings = { ...DEFAULT_SETTINGS };
     saveUserSettings();
+    clearSleepTimer();
+    applyPlaybackRate();
     applyUserSettings();
     syncSettingsUI();
     haptic('medium');
 });
 
 applyUserSettings();
+applyPlaybackRate();
 
 let progressRafId = null;
 let pendingDelete = null;
@@ -1092,8 +1284,11 @@ function playTrackById(fileId, shouldScroll = false) {
     setProgressVisual(0, 0);
 
     // Не даём внутреннему событию pause при смене audio.src сжимать обложку во время буферизации
+    cancelAudioFade();
+    try { audio.volume = 1; } catch (e) {}
     isSwitchingTrack = true;
     audio.src = track.stream_url;
+    applyPlaybackRate();
     saveLastTrackState(true);
     audio.play().catch(() => {
         isSwitchingTrack = false;
@@ -1142,9 +1337,9 @@ function togglePlayPause() {
     }
     isSwitchingTrack = false;
     if (audio.paused) {
-        audio.play();
+        playWithFade();
     } else {
-        audio.pause();
+        pauseWithFade();
     }
 }
 
@@ -1230,6 +1425,7 @@ audio.addEventListener('pause', () => {
     saveLastTrackState(true);
 });
 audio.addEventListener('loadedmetadata', () => {
+    applyPlaybackRate();
     if (pendingResumeTime !== null && audio.duration) {
         const clamped = Math.max(0, Math.min(pendingResumeTime, Math.max(0, audio.duration - 1)));
         audio.currentTime = clamped;
@@ -1254,12 +1450,19 @@ audio.addEventListener('timeupdate', () => {
 
 audio.addEventListener('ended', () => {
     stopProgressLoop();
+    if (sleepMode === 'track') {
+        clearSleepTimer();
+        updatePlayButtons(false);
+        return;
+    }
     if (isRepeat) {
         audio.currentTime = 0;
         setProgressVisual(0, audio.duration || 0);
         audio.play();
-    } else if (filteredTracks.length > 0) {
+    } else if (userSettings.autoNext && filteredTracks.length > 0) {
         playNextTrack();
+    } else {
+        updatePlayButtons(false);
     }
 });
 

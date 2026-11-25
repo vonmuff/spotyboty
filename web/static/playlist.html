@@ -177,8 +177,48 @@
             </div>
 
             <div class="settings-section">
+                <div class="settings-label-row">
+                    <span class="settings-label">Таймер сна</span>
+                    <span id="sleepTimerBadge" class="sleep-badge"></span>
+                </div>
+                <div id="sleepSegment" class="segmented-control segmented-5">
+                    <button class="seg-btn" data-sleep="off" type="button">Выкл</button>
+                    <button class="seg-btn" data-sleep="15" type="button">15м</button>
+                    <button class="seg-btn" data-sleep="30" type="button">30м</button>
+                    <button class="seg-btn" data-sleep="60" type="button">60м</button>
+                    <button class="seg-btn" data-sleep="track" type="button">Трек</button>
+                </div>
+            </div>
+
+            <div class="settings-section">
+                <div class="settings-label">Скорость воспроизведения</div>
+                <div id="speedSegment" class="segmented-control segmented-4">
+                    <button class="seg-btn" data-speed="0.8" type="button">0.8×</button>
+                    <button class="seg-btn" data-speed="1" type="button">1.0×</button>
+                    <button class="seg-btn" data-speed="1.25" type="button">1.25×</button>
+                    <button class="seg-btn" data-speed="1.5" type="button">1.5×</button>
+                </div>
+            </div>
+
+            <div class="settings-section">
                 <div class="settings-label">Интерфейс и поведение</div>
                 <div class="settings-list">
+                    <label class="setting-row">
+                        <span class="setting-text">
+                            <span class="setting-title">Плавный Play / Pause</span>
+                            <span class="setting-desc">Мягкое нарастание и затухание звука</span>
+                        </span>
+                        <input type="checkbox" id="optAudioFade" class="toggle-input">
+                        <span class="toggle-switch"></span>
+                    </label>
+                    <label class="setting-row">
+                        <span class="setting-text">
+                            <span class="setting-title">Автопереход к следующему</span>
+                            <span class="setting-desc">Включать следующий трек после окончания</span>
+                        </span>
+                        <input type="checkbox" id="optAutoNext" class="toggle-input">
+                        <span class="toggle-switch"></span>
+                    </label>
                     <label class="setting-row">
                         <span class="setting-text">
                             <span class="setting-title">Анимированный эквалайзер</span>
