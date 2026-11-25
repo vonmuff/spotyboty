@@ -1116,23 +1116,33 @@ function renderTabSwipeFrame() {
     let visualX = tabSwipeDeltaX;
     if (atStartEdge || atEndEdge) {
         // Мягкое «резиновое» сопротивление на крайних вкладках
-        visualX = Math.max(-44, Math.min(44, tabSwipeDeltaX * 0.24));
+        visualX = Math.max(-36, Math.min(36, tabSwipeDeltaX * 0.22));
     } else {
-        visualX = Math.max(-220, Math.min(220, tabSwipeDeltaX));
+        visualX = Math.max(-130, Math.min(130, tabSwipeDeltaX * 0.65));
     }
-    const op = atStartEdge || atEndEdge ? 1 : Math.max(0.55, 1 - Math.abs(visualX) / 380);
+    const op = atStartEdge || atEndEdge ? 1 : Math.max(0.72, 1 - Math.abs(visualX) / 420);
     trackListEl.style.transform = `translate3d(${visualX}px, 0, 0)`;
     trackListEl.style.opacity = `${op}`;
 }
 
+let tabSwipeSwitchTimer = null;
+
 function animateTabSwipeSwitch(targetPlId, direction) {
     // direction: -1 (swipe left -> next tab), +1 (swipe right -> prev tab)
+    if (tabSwipeSwitchTimer) {
+        clearTimeout(tabSwipeSwitchTimer);
+        tabSwipeSwitchTimer = null;
+    }
+    const currentOffset = Math.min(130, Math.abs(tabSwipeDeltaX) * 0.65);
+    const exitX = direction * Math.max(72, currentOffset + 42);
+
     trackListEl.classList.remove('swiping');
     trackListEl.classList.add('swipe-out');
-    trackListEl.style.transform = `translate3d(${direction * 110}px, 0, 0)`;
+    trackListEl.style.transform = `translate3d(${exitX}px, 0, 0)`;
     trackListEl.style.opacity = '0';
 
-    setTimeout(() => {
+    tabSwipeSwitchTimer = setTimeout(() => {
+        tabSwipeSwitchTimer = null;
         activePlaylistId = targetPlId;
         renderPlaylistTabs();
         applySearchFilter();
@@ -1140,13 +1150,17 @@ function animateTabSwipeSwitch(targetPlId, direction) {
 
         trackListEl.classList.remove('swipe-out');
         trackListEl.classList.add('swiping');
-        trackListEl.style.transform = `translate3d(${-direction * 46}px, 0, 0)`;
+        trackListEl.style.transform = `translate3d(${-direction * 26}px, 0, 0)`;
         trackListEl.style.opacity = '0';
-        void trackListEl.offsetWidth;
-        trackListEl.classList.remove('swiping');
-        trackListEl.style.transform = '';
-        trackListEl.style.opacity = '';
-    }, 140);
+
+        requestAnimationFrame(() => {
+            requestAnimationFrame(() => {
+                trackListEl.classList.remove('swiping');
+                trackListEl.style.transform = '';
+                trackListEl.style.opacity = '';
+            });
+        });
+    }, 155);
 }
 
 document.addEventListener('touchstart', (e) => {
