@@ -151,176 +151,206 @@
                 </button>
             </div>
 
-            <div class="settings-section">
-                <div class="settings-label">Акцентный цвет</div>
-                <div id="accentPalette" class="accent-palette">
-                    <button class="accent-swatch" data-accent="spotify" style="--swatch:#1db954" title="Spotify" type="button"></button>
-                    <button class="accent-swatch" data-accent="telegram" style="--swatch:var(--tg-theme-button-color, #2ea6ff)" title="Telegram" type="button"></button>
-                    <button class="accent-swatch" data-accent="purple" style="--swatch:#a855f7" title="Фиолетовый" type="button"></button>
-                    <button class="accent-swatch" data-accent="pink" style="--swatch:#ec4899" title="Розовый" type="button"></button>
-                    <button class="accent-swatch" data-accent="orange" style="--swatch:#f97316" title="Оранжевый" type="button"></button>
-                    <button class="accent-swatch" data-accent="cyan" style="--swatch:#06b6d4" title="Бирюзовый" type="button"></button>
+            <div class="settings-group">
+                <div class="settings-group-title">🎧 Воспроизведение</div>
+
+                <div class="settings-section">
+                    <div class="settings-label-row">
+                        <span class="settings-label">Таймер сна</span>
+                        <span id="sleepTimerBadge" class="sleep-badge"></span>
+                    </div>
+                    <div id="sleepSegment" class="segmented-control segmented-5">
+                        <button class="seg-btn" data-sleep="off" type="button">Выкл</button>
+                        <button class="seg-btn" data-sleep="15" type="button">15м</button>
+                        <button class="seg-btn" data-sleep="30" type="button">30м</button>
+                        <button class="seg-btn" data-sleep="60" type="button">60м</button>
+                        <button class="seg-btn" data-sleep="track" type="button">Трек</button>
+                    </div>
+                </div>
+
+                <div class="settings-section">
+                    <div class="settings-label">Скорость воспроизведения</div>
+                    <div id="speedSegment" class="segmented-control segmented-4">
+                        <button class="seg-btn" data-speed="0.8" type="button">0.8×</button>
+                        <button class="seg-btn" data-speed="1" type="button">1.0×</button>
+                        <button class="seg-btn" data-speed="1.25" type="button">1.25×</button>
+                        <button class="seg-btn" data-speed="1.5" type="button">1.5×</button>
+                    </div>
+                </div>
+
+                <div class="settings-section">
+                    <div class="settings-list">
+                        <label class="setting-row">
+                            <span class="setting-text">
+                                <span class="setting-title">Плавный Play / Pause</span>
+                                <span class="setting-desc">Мягкое нарастание и затухание звука</span>
+                            </span>
+                            <input type="checkbox" id="optAudioFade" class="toggle-input">
+                            <span class="toggle-switch"></span>
+                        </label>
+                        <label class="setting-row">
+                            <span class="setting-text">
+                                <span class="setting-title">Автопереход к следующему</span>
+                                <span class="setting-desc">Включать следующий трек после окончания</span>
+                            </span>
+                            <input type="checkbox" id="optAutoNext" class="toggle-input">
+                            <span class="toggle-switch"></span>
+                        </label>
+                        <label class="setting-row">
+                            <span class="setting-text">
+                                <span class="setting-title">Запоминать последний трек</span>
+                                <span class="setting-desc">Восстанавливать трек и позицию при открытии</span>
+                            </span>
+                            <input type="checkbox" id="optRememberLast" class="toggle-input">
+                            <span class="toggle-switch"></span>
+                        </label>
+                        <label class="setting-row">
+                            <span class="setting-text">
+                                <span class="setting-title">Сразу открывать плеер</span>
+                                <span class="setting-desc">Разворачивать на весь экран при выборе трека</span>
+                            </span>
+                            <input type="checkbox" id="optAutoOpenPlayer" class="toggle-input">
+                            <span class="toggle-switch"></span>
+                        </label>
+                    </div>
                 </div>
             </div>
 
-            <div class="settings-section">
-                <div class="settings-label">Полноэкранный плеер</div>
-                <div id="fpThemeSegment" class="segmented-control">
-                    <button class="seg-btn" data-fp-theme="auto" type="button">Авто</button>
-                    <button class="seg-btn" data-fp-theme="dark" type="button">Тёмный</button>
-                    <button class="seg-btn" data-fp-theme="light" type="button">Светлый</button>
+            <div class="settings-group">
+                <div class="settings-group-title">🎨 Внешний вид и плеер</div>
+
+                <div class="settings-section">
+                    <div class="settings-label">Акцентный цвет</div>
+                    <div id="accentPalette" class="accent-palette">
+                        <button class="accent-swatch" data-accent="spotify" style="--swatch:#1db954" title="Spotify" type="button"></button>
+                        <button class="accent-swatch" data-accent="telegram" style="--swatch:var(--tg-theme-button-color, #2ea6ff)" title="Telegram" type="button"></button>
+                        <button class="accent-swatch" data-accent="purple" style="--swatch:#a855f7" title="Фиолетовый" type="button"></button>
+                        <button class="accent-swatch" data-accent="pink" style="--swatch:#ec4899" title="Розовый" type="button"></button>
+                        <button class="accent-swatch" data-accent="orange" style="--swatch:#f97316" title="Оранжевый" type="button"></button>
+                        <button class="accent-swatch" data-accent="cyan" style="--swatch:#06b6d4" title="Бирюзовый" type="button"></button>
+                    </div>
+                </div>
+
+                <div class="settings-section">
+                    <div class="settings-label">Тема полноэкранного плеера</div>
+                    <div id="fpThemeSegment" class="segmented-control">
+                        <button class="seg-btn" data-fp-theme="auto" type="button">Авто</button>
+                        <button class="seg-btn" data-fp-theme="dark" type="button">Тёмный</button>
+                        <button class="seg-btn" data-fp-theme="light" type="button">Светлый</button>
+                    </div>
+                </div>
+
+                <div class="settings-section">
+                    <div class="settings-label">Стиль обложки</div>
+                    <div id="coverStyleSegment" class="segmented-control segmented-2">
+                        <button class="seg-btn" data-cover-style="square" type="button">Квадрат</button>
+                        <button class="seg-btn" data-cover-style="vinyl" type="button">Винил</button>
+                    </div>
+                </div>
+
+                <div class="settings-section">
+                    <div class="settings-list">
+                        <label class="setting-row">
+                            <span class="setting-text">
+                                <span class="setting-title">Размытый фон обложки</span>
+                                <span class="setting-desc">Динамическая подсветка в полноэкранном плеере</span>
+                            </span>
+                            <input type="checkbox" id="optAmbientBg" class="toggle-input">
+                            <span class="toggle-switch"></span>
+                        </label>
+                        <label class="setting-row">
+                            <span class="setting-text">
+                                <span class="setting-title">Анимированный эквалайзер</span>
+                                <span class="setting-desc">Столбики поверх обложки активного трека</span>
+                            </span>
+                            <input type="checkbox" id="optEqualizer" class="toggle-input">
+                            <span class="toggle-switch"></span>
+                        </label>
+                        <label class="setting-row">
+                            <span class="setting-text">
+                                <span class="setting-title">Бегущая строка (Marquee)</span>
+                                <span class="setting-desc">Прокручивать длинные названия треков</span>
+                            </span>
+                            <input type="checkbox" id="optMarquee" class="toggle-input">
+                            <span class="toggle-switch"></span>
+                        </label>
+                    </div>
                 </div>
             </div>
 
-            <div class="settings-section">
-                <div class="settings-label">Сортировка плейлиста</div>
-                <div id="sortSegment" class="segmented-control segmented-4">
-                    <button class="seg-btn" data-sort="newest" type="button">Новые</button>
-                    <button class="seg-btn" data-sort="oldest" type="button">Старые</button>
-                    <button class="seg-btn" data-sort="title" type="button">А–Я</button>
-                    <button class="seg-btn" data-sort="artist" type="button">Автор</button>
+            <div class="settings-group">
+                <div class="settings-group-title">📋 Список треков</div>
+
+                <div class="settings-section">
+                    <div class="settings-label">Сортировка плейлиста</div>
+                    <div id="sortSegment" class="segmented-control segmented-4">
+                        <button class="seg-btn" data-sort="newest" type="button">Новые</button>
+                        <button class="seg-btn" data-sort="oldest" type="button">Старые</button>
+                        <button class="seg-btn" data-sort="title" type="button">А–Я</button>
+                        <button class="seg-btn" data-sort="artist" type="button">Автор</button>
+                    </div>
+                </div>
+
+                <div class="settings-section">
+                    <div class="settings-label">Плотность списка</div>
+                    <div id="densitySegment" class="segmented-control segmented-2">
+                        <button class="seg-btn" data-density="normal" type="button">Обычный</button>
+                        <button class="seg-btn" data-density="compact" type="button">Компактный</button>
+                    </div>
+                </div>
+
+                <div class="settings-section">
+                    <div class="settings-list">
+                        <label class="setting-row">
+                            <span class="setting-text">
+                                <span class="setting-title">Автопрокрутка к треку</span>
+                                <span class="setting-desc">Плавно докручивать список при переключении</span>
+                            </span>
+                            <input type="checkbox" id="optAutoScroll" class="toggle-input">
+                            <span class="toggle-switch"></span>
+                        </label>
+                        <label class="setting-row">
+                            <span class="setting-text">
+                                <span class="setting-title">Кнопка «В чат» на карточках</span>
+                                <span class="setting-desc">Показывать иконку отправки трека в чат</span>
+                            </span>
+                            <input type="checkbox" id="optShowSendBtn" class="toggle-input">
+                            <span class="toggle-switch"></span>
+                        </label>
+                        <label class="setting-row">
+                            <span class="setting-text">
+                                <span class="setting-title">Скрыть кнопку удаления</span>
+                                <span class="setting-desc">Убирает корзину с карточек от случайных нажатий</span>
+                            </span>
+                            <input type="checkbox" id="optHideDeleteBtn" class="toggle-input">
+                            <span class="toggle-switch"></span>
+                        </label>
+                    </div>
                 </div>
             </div>
 
-            <div class="settings-section">
-                <div class="settings-label">Плотность списка</div>
-                <div id="densitySegment" class="segmented-control segmented-2">
-                    <button class="seg-btn" data-density="normal" type="button">Обычный</button>
-                    <button class="seg-btn" data-density="compact" type="button">Компактный</button>
-                </div>
-            </div>
+            <div class="settings-group">
+                <div class="settings-group-title">⚡ Система</div>
 
-            <div class="settings-section">
-                <div class="settings-label">Стиль обложки</div>
-                <div id="coverStyleSegment" class="segmented-control segmented-2">
-                    <button class="seg-btn" data-cover-style="square" type="button">Квадрат</button>
-                    <button class="seg-btn" data-cover-style="vinyl" type="button">Винил</button>
-                </div>
-            </div>
-
-            <div class="settings-section">
-                <div class="settings-label-row">
-                    <span class="settings-label">Таймер сна</span>
-                    <span id="sleepTimerBadge" class="sleep-badge"></span>
-                </div>
-                <div id="sleepSegment" class="segmented-control segmented-5">
-                    <button class="seg-btn" data-sleep="off" type="button">Выкл</button>
-                    <button class="seg-btn" data-sleep="15" type="button">15м</button>
-                    <button class="seg-btn" data-sleep="30" type="button">30м</button>
-                    <button class="seg-btn" data-sleep="60" type="button">60м</button>
-                    <button class="seg-btn" data-sleep="track" type="button">Трек</button>
-                </div>
-            </div>
-
-            <div class="settings-section">
-                <div class="settings-label">Скорость воспроизведения</div>
-                <div id="speedSegment" class="segmented-control segmented-4">
-                    <button class="seg-btn" data-speed="0.8" type="button">0.8×</button>
-                    <button class="seg-btn" data-speed="1" type="button">1.0×</button>
-                    <button class="seg-btn" data-speed="1.25" type="button">1.25×</button>
-                    <button class="seg-btn" data-speed="1.5" type="button">1.5×</button>
-                </div>
-            </div>
-
-            <div class="settings-section">
-                <div class="settings-label">Интерфейс и поведение</div>
-                <div class="settings-list">
-                    <label class="setting-row">
-                        <span class="setting-text">
-                            <span class="setting-title">Плавный Play / Pause</span>
-                            <span class="setting-desc">Мягкое нарастание и затухание звука</span>
-                        </span>
-                        <input type="checkbox" id="optAudioFade" class="toggle-input">
-                        <span class="toggle-switch"></span>
-                    </label>
-                    <label class="setting-row">
-                        <span class="setting-text">
-                            <span class="setting-title">Автопереход к следующему</span>
-                            <span class="setting-desc">Включать следующий трек после окончания</span>
-                        </span>
-                        <input type="checkbox" id="optAutoNext" class="toggle-input">
-                        <span class="toggle-switch"></span>
-                    </label>
-                    <label class="setting-row">
-                        <span class="setting-text">
-                            <span class="setting-title">Анимированный эквалайзер</span>
-                            <span class="setting-desc">Столбики поверх обложки активного трека</span>
-                        </span>
-                        <input type="checkbox" id="optEqualizer" class="toggle-input">
-                        <span class="toggle-switch"></span>
-                    </label>
-                    <label class="setting-row">
-                        <span class="setting-text">
-                            <span class="setting-title">Размытый фон обложки</span>
-                            <span class="setting-desc">Динамическая подсветка в полноэкранном плеере</span>
-                        </span>
-                        <input type="checkbox" id="optAmbientBg" class="toggle-input">
-                        <span class="toggle-switch"></span>
-                    </label>
-                    <label class="setting-row">
-                        <span class="setting-text">
-                            <span class="setting-title">Кнопка «В чат» на карточках</span>
-                            <span class="setting-desc">Показывать иконку отправки трека в чат</span>
-                        </span>
-                        <input type="checkbox" id="optShowSendBtn" class="toggle-input">
-                        <span class="toggle-switch"></span>
-                    </label>
-                    <label class="setting-row">
-                        <span class="setting-text">
-                            <span class="setting-title">Скрыть кнопку удаления</span>
-                            <span class="setting-desc">Убирает корзину с карточек от случайных нажатий</span>
-                        </span>
-                        <input type="checkbox" id="optHideDeleteBtn" class="toggle-input">
-                        <span class="toggle-switch"></span>
-                    </label>
-                    <label class="setting-row">
-                        <span class="setting-text">
-                            <span class="setting-title">Сразу открывать плеер</span>
-                            <span class="setting-desc">Разворачивать на весь экран при выборе трека</span>
-                        </span>
-                        <input type="checkbox" id="optAutoOpenPlayer" class="toggle-input">
-                        <span class="toggle-switch"></span>
-                    </label>
-                    <label class="setting-row">
-                        <span class="setting-text">
-                            <span class="setting-title">Запоминать последний трек</span>
-                            <span class="setting-desc">Восстанавливать трек и позицию при открытии</span>
-                        </span>
-                        <input type="checkbox" id="optRememberLast" class="toggle-input">
-                        <span class="toggle-switch"></span>
-                    </label>
-                    <label class="setting-row">
-                        <span class="setting-text">
-                            <span class="setting-title">Автопрокрутка к треку</span>
-                            <span class="setting-desc">Плавно докручивать список при переключении</span>
-                        </span>
-                        <input type="checkbox" id="optAutoScroll" class="toggle-input">
-                        <span class="toggle-switch"></span>
-                    </label>
-                    <label class="setting-row">
-                        <span class="setting-text">
-                            <span class="setting-title">Бегущая строка (Marquee)</span>
-                            <span class="setting-desc">Прокручивать длинные названия треков</span>
-                        </span>
-                        <input type="checkbox" id="optMarquee" class="toggle-input">
-                        <span class="toggle-switch"></span>
-                    </label>
-                    <label class="setting-row">
-                        <span class="setting-text">
-                            <span class="setting-title">Экономия заряда</span>
-                            <span class="setting-desc">Отключить лишние анимации и свечение</span>
-                        </span>
-                        <input type="checkbox" id="optReducedMotion" class="toggle-input">
-                        <span class="toggle-switch"></span>
-                    </label>
-                    <label class="setting-row">
-                        <span class="setting-text">
-                            <span class="setting-title">Виброотклик (Haptic)</span>
-                            <span class="setting-desc">Тактильная отдача при нажатиях на телефоне</span>
-                        </span>
-                        <input type="checkbox" id="optHaptic" class="toggle-input">
-                        <span class="toggle-switch"></span>
-                    </label>
+                <div class="settings-section">
+                    <div class="settings-list">
+                        <label class="setting-row">
+                            <span class="setting-text">
+                                <span class="setting-title">Виброотклик (Haptic)</span>
+                                <span class="setting-desc">Тактильная отдача при нажатиях на телефоне</span>
+                            </span>
+                            <input type="checkbox" id="optHaptic" class="toggle-input">
+                            <span class="toggle-switch"></span>
+                        </label>
+                        <label class="setting-row">
+                            <span class="setting-text">
+                                <span class="setting-title">Экономия заряда</span>
+                                <span class="setting-desc">Отключить лишние анимации и свечение</span>
+                            </span>
+                            <input type="checkbox" id="optReducedMotion" class="toggle-input">
+                            <span class="toggle-switch"></span>
+                        </label>
+                    </div>
                 </div>
             </div>
 
