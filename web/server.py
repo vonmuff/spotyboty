@@ -315,7 +315,7 @@ async def list_user_playlists(request):
 
     async with aiosqlite.connect(DB_PATH) as conn:
         async with conn.execute(
-            "SELECT id, name, emoji FROM user_playlists WHERE user_id = ? ORDER BY id ASC",
+            "SELECT id, name, emoji FROM user_playlists WHERE user_id = ? ORDER BY position ASC, id ASC",
             (user_id,),
         ) as cur:
             pl_rows = await cur.fetchall()
@@ -327,7 +327,7 @@ async def list_user_playlists(request):
             INNER JOIN user_playlists up ON up.id = pi.playlist_id
             INNER JOIN playlist p ON p.user_id = up.user_id AND p.file_id = pi.file_id
             WHERE up.user_id = ?
-            ORDER BY pi.rowid DESC
+            ORDER BY pi.position ASC, pi.rowid DESC
             """,
             (user_id,),
         ) as cur:
@@ -378,10 +378,16 @@ async def create_user_playlist(request):
                 status=400,
             )
 
+        async with conn.execute(
+            "SELECT COALESCE(MAX(position), -1) + 1 FROM user_playlists WHERE user_id = ?",
+            (user_id,),
+        ) as cur:
+            next_pos = (await cur.fetchone())[0]
+
         now_iso = datetime.now().isoformat()
         cur = await conn.execute(
-            "INSERT INTO user_playlists (user_id, name, emoji, created_at) VALUES (?, ?, ?, ?)",
-            (user_id, name, emoji, now_iso),
+            "INSERT INTO user_playlists (user_id, name, emoji, position, created_at) VALUES (?, ?, ?, ?, ?)",
+            (user_id, name, emoji, next_pos, now_iso),
         )
         pl_id = cur.lastrowid
         await conn.commit()
@@ -390,6 +396,44 @@ async def create_user_playlist(request):
         {"playlist": {"id": pl_id, "name": name, "emoji": emoji, "track_ids": []}},
         status=201,
     )
+
+
+@routes.put('/api/playlists/reorder')
+async def reorder_user_playlists(request):
+    """Сохраняет новый порядок вкладок пользовательских плейлистов."""
+    user_id = _get_authenticated_user_id(request)
+    if user_id is None:
+        return web.json_response({'error': 'Unauthorized'}, status=401)
+
+    try:
+        body = await request.json()
+    except Exception:
+        return web.json_response({'error': 'Invalid JSON'}, status=400)
+
+    raw_ids = body.get('playlist_ids')
+    if not isinstance(raw_ids, list):
+        return web.json_response({'error': 'playlist_ids list required'}, status=400)
+
+    clean_ids = []
+    seen = set()
+    for item in raw_ids:
+        try:
+            pid = int(item)
+        except (TypeError, ValueError):
+            continue
+        if pid not in seen:
+            seen.add(pid)
+            clean_ids.append(pid)
+
+    async with aiosqlite.connect(DB_PATH) as conn:
+        for pos, pid in enumerate(clean_ids):
+            await conn.execute(
+                "UPDATE user_playlists SET position = ? WHERE id = ? AND user_id = ?",
+                (pos, pid, user_id),
+            )
+        await conn.commit()
+
+    return web.json_response({'status': 'ok'})
 
 
 @routes.patch('/api/playlists/{id}')
@@ -495,16 +539,71 @@ async def add_tracks_to_user_playlist(request):
         ) as cur:
             allowed_ids = {r[0] for r in await cur.fetchall()}
 
+        async with conn.execute(
+            "SELECT COALESCE(MIN(position), 0) FROM playlist_items WHERE playlist_id = ?",
+            (pl_id,),
+        ) as cur:
+            min_pos = (await cur.fetchone())[0]
+
         now_iso = datetime.now().isoformat()
-        to_insert = [(pl_id, fid, now_iso) for fid in clean_ids if fid in allowed_ids]
+        valid_ids = [fid for fid in clean_ids if fid in allowed_ids]
+        to_insert = [
+            (pl_id, fid, min_pos - 1 - idx, now_iso)
+            for idx, fid in enumerate(valid_ids)
+        ]
         if to_insert:
             await conn.executemany(
-                "INSERT OR IGNORE INTO playlist_items (playlist_id, file_id, added_at) VALUES (?, ?, ?)",
+                "INSERT OR IGNORE INTO playlist_items (playlist_id, file_id, position, added_at) VALUES (?, ?, ?, ?)",
                 to_insert,
             )
             await conn.commit()
 
     return web.json_response({'status': 'ok', 'added': len(to_insert)})
+
+
+@routes.put('/api/playlists/{id}/reorder')
+async def reorder_playlist_tracks(request):
+    """Сохраняет ручной порядок треков внутри пользовательского плейлиста."""
+    user_id = _get_authenticated_user_id(request)
+    if user_id is None:
+        return web.json_response({'error': 'Unauthorized'}, status=401)
+
+    pl_id = _parse_playlist_id(request)
+    if pl_id is None:
+        return web.json_response({'error': 'Invalid playlist id'}, status=400)
+
+    try:
+        body = await request.json()
+    except Exception:
+        return web.json_response({'error': 'Invalid JSON'}, status=400)
+
+    raw_ids = body.get('file_ids')
+    if not isinstance(raw_ids, list):
+        return web.json_response({'error': 'file_ids list required'}, status=400)
+
+    clean_ids = []
+    seen = set()
+    for item in raw_ids[:1000]:
+        fid = str(item).strip()
+        if fid and fid not in seen:
+            seen.add(fid)
+            clean_ids.append(fid)
+
+    async with aiosqlite.connect(DB_PATH) as conn:
+        async with conn.execute(
+            "SELECT 1 FROM user_playlists WHERE id = ? AND user_id = ?",
+            (pl_id, user_id),
+        ) as cur:
+            if not await cur.fetchone():
+                return web.json_response({'error': 'Not found'}, status=404)
+
+        await conn.executemany(
+            "UPDATE playlist_items SET position = ? WHERE playlist_id = ? AND file_id = ?",
+            [(pos, pl_id, fid) for pos, fid in enumerate(clean_ids)],
+        )
+        await conn.commit()
+
+    return web.json_response({'status': 'ok'})
 
 
 @routes.delete('/api/playlists/{id}/tracks')
