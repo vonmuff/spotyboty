@@ -1195,9 +1195,9 @@ body.fp-open {
     inset: 0;
     background: linear-gradient(
         180deg,
-        rgba(15, 15, 19, 0.35) 0%,
-        rgba(15, 15, 19, 0.55) 55%,
-        rgba(15, 15, 19, 0.92) 100%
+        rgba(15, 15, 19, 0.28) 0%,
+        rgba(15, 15, 19, 0.42) 55%,
+        rgba(15, 15, 19, 0.64) 100%
     );
 }
 
@@ -1441,9 +1441,9 @@ body.fp-open {
 :root[data-fp-theme="light"] .fp-bg::after {
     background: linear-gradient(
         180deg,
-        rgba(255, 255, 255, 0.35) 0%,
-        rgba(255, 255, 255, 0.64) 55%,
-        color-mix(in srgb, var(--bg-main) 95%, transparent) 100%
+        rgba(255, 255, 255, 0.28) 0%,
+        rgba(255, 255, 255, 0.48) 55%,
+        color-mix(in srgb, var(--bg-main) 68%, transparent) 100%
     );
 }
 
