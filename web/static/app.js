@@ -2376,14 +2376,21 @@ function boostColorVividness(r, g, b) {
     const avg = (r + g + b) / 3;
     const sat = max === 0 ? 0 : (max - min) / max;
     const boost = sat < 0.35 ? 1.45 : 1.18;
-    const nr = Math.min(255, Math.max(0, Math.round(avg + (r - avg) * boost)));
-    const ng = Math.min(255, Math.max(0, Math.round(avg + (g - avg) * boost)));
-    const nb = Math.min(255, Math.max(0, Math.round(avg + (b - avg) * boost)));
-    // Поднимаем слишком тёмные оттенки, чтобы свечение всегда было видно
+    let nr = Math.min(255, Math.max(0, Math.round(avg + (r - avg) * boost)));
+    let ng = Math.min(255, Math.max(0, Math.round(avg + (g - avg) * boost)));
+    let nb = Math.min(255, Math.max(0, Math.round(avg + (b - avg) * boost)));
+    // Держим яркость в комфортном диапазоне: не слишком темно и без выжигания в белый
     const lum = 0.299 * nr + 0.587 * ng + 0.114 * nb;
     if (lum < 75 && lum > 1) {
         const k = 90 / lum;
-        return [Math.min(255, Math.round(nr * k)), Math.min(255, Math.round(ng * k)), Math.min(255, Math.round(nb * k))];
+        nr = Math.min(255, Math.round(nr * k));
+        ng = Math.min(255, Math.round(ng * k));
+        nb = Math.min(255, Math.round(nb * k));
+    } else if (lum > 185) {
+        const k = 175 / lum;
+        nr = Math.round(nr * k);
+        ng = Math.round(ng * k);
+        nb = Math.round(nb * k);
     }
     return [nr, ng, nb];
 }
@@ -2524,6 +2531,10 @@ function stopAmbientRuntime() {
     }
     smoothedBeat = 0;
     fullPlayer.style.setProperty('--beat', '0');
+    if (fpBokehCanvas && (userSettings.ambientStyle !== 'bokeh' || userSettings.ambientMotion === 'off' || !userSettings.ambientBg)) {
+        const ctx = fpBokehCanvas.getContext('2d');
+        if (ctx) ctx.clearRect(0, 0, fpBokehCanvas.width, fpBokehCanvas.height);
+    }
 }
 
 function syncAmbientRuntime() {
@@ -2701,6 +2712,9 @@ function crossfadeFullPlayerCover(coverUrl, instantCover = false) {
         hideLayerInstantly(nextCover);
         hideLayerInstantly(prevBg);
         hideLayerInstantly(nextBg);
+        hideLayerInstantly(prevAlt);
+        hideLayerInstantly(nextAlt);
+        applyAmbientPalette(DEFAULT_AMBIENT_PALETTE);
         fpCoverFallback.style.display = 'block';
     };
     preload.src = coverUrl;
