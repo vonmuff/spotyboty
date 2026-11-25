@@ -55,6 +55,7 @@ async def init_db():
                 user_id INTEGER NOT NULL,
                 name TEXT NOT NULL,
                 emoji TEXT NOT NULL DEFAULT '🎧',
+                position INTEGER NOT NULL DEFAULT 0,
                 created_at TEXT NOT NULL
             )
         """)
@@ -62,6 +63,7 @@ async def init_db():
             CREATE TABLE IF NOT EXISTS playlist_items (
                 playlist_id INTEGER NOT NULL,
                 file_id TEXT NOT NULL,
+                position INTEGER NOT NULL DEFAULT 0,
                 added_at TEXT NOT NULL,
                 UNIQUE(playlist_id, file_id)
             )
@@ -76,6 +78,12 @@ async def init_db():
                     await conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} TEXT")
                 except aiosqlite.OperationalError:
                     pass
+
+        for table in ("user_playlists", "playlist_items"):
+            try:
+                await conn.execute(f"ALTER TABLE {table} ADD COLUMN position INTEGER NOT NULL DEFAULT 0")
+            except aiosqlite.OperationalError:
+                pass
 
         await _migrate_jsonl_logs(conn)
         await conn.commit()
