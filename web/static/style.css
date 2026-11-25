@@ -1151,8 +1151,10 @@ body.fp-open {
     left: -160px;
     width: calc(100% + 320px);
     height: calc(100% + 320px);
-    filter: blur(42px) saturate(1.75) brightness(0.55);
+    filter: blur(36px) saturate(1.7) brightness(0.55);
     transform: translate3d(0, 0, 0) scale(1.12);
+    backface-visibility: hidden;
+    -webkit-backface-visibility: hidden;
     will-change: transform;
     animation: ambientBgDrift 12s ease-in-out infinite paused;
 }
@@ -1226,13 +1228,13 @@ body[data-ambient-motion="vivid"] .fp-bg-parallax-layer {
     opacity: 0.38;
 }
 
-/* ===== Style 1: Liquid Mesh (Apple Music style) ===== */
+/* ===== Style 1: Liquid Mesh (Apple Music style — zero-blur pure radial gradients for 60fps mobile) ===== */
 .fp-bg-mesh {
     display: none;
     position: absolute;
     inset: -15%;
     pointer-events: none;
-    will-change: transform;
+    transform: translateZ(0);
 }
 
 body[data-ambient-style="mesh"] .fp-bg-mesh {
@@ -1242,56 +1244,81 @@ body[data-ambient-style="mesh"] .fp-bg-mesh {
 .mesh-orb {
     position: absolute;
     border-radius: 50%;
-    filter: blur(36px);
-    opacity: 0.84;
+    opacity: 0.78;
     will-change: transform;
+    backface-visibility: hidden;
+    -webkit-backface-visibility: hidden;
 }
 
 :root[data-fp-theme="light"] .mesh-orb {
-    opacity: 0.62;
+    opacity: 0.56;
 }
 
 body[data-ambient-motion="vivid"] .mesh-orb {
-    opacity: 0.96;
+    opacity: 0.92;
 }
 
 body[data-ambient-motion="soft"] .mesh-orb {
-    opacity: 0.65;
+    opacity: 0.58;
 }
 
 .mesh-orb.orb-1 {
-    width: 58%;
-    height: 40%;
-    top: 4%;
-    left: -6%;
-    background: radial-gradient(circle, var(--fp-c1) 0%, transparent 66%);
+    width: 78%;
+    height: 54%;
+    top: -4%;
+    left: -14%;
+    background: radial-gradient(
+        circle,
+        color-mix(in srgb, var(--fp-c1) 92%, transparent) 0%,
+        color-mix(in srgb, var(--fp-c1) 52%, transparent) 34%,
+        color-mix(in srgb, var(--fp-c1) 14%, transparent) 58%,
+        transparent 74%
+    );
     animation: meshOrb1 9s ease-in-out infinite paused;
 }
 
 .mesh-orb.orb-2 {
-    width: 54%;
-    height: 38%;
-    top: 22%;
-    right: -8%;
-    background: radial-gradient(circle, var(--fp-c2) 0%, transparent 66%);
+    width: 74%;
+    height: 52%;
+    top: 16%;
+    right: -16%;
+    background: radial-gradient(
+        circle,
+        color-mix(in srgb, var(--fp-c2) 92%, transparent) 0%,
+        color-mix(in srgb, var(--fp-c2) 52%, transparent) 34%,
+        color-mix(in srgb, var(--fp-c2) 14%, transparent) 58%,
+        transparent 74%
+    );
     animation: meshOrb2 11s ease-in-out infinite paused;
 }
 
 .mesh-orb.orb-3 {
-    width: 60%;
-    height: 42%;
-    bottom: 4%;
-    left: 0%;
-    background: radial-gradient(circle, var(--fp-c3) 0%, transparent 66%);
+    width: 80%;
+    height: 56%;
+    bottom: -4%;
+    left: -10%;
+    background: radial-gradient(
+        circle,
+        color-mix(in srgb, var(--fp-c3) 92%, transparent) 0%,
+        color-mix(in srgb, var(--fp-c3) 52%, transparent) 34%,
+        color-mix(in srgb, var(--fp-c3) 14%, transparent) 58%,
+        transparent 74%
+    );
     animation: meshOrb3 13s ease-in-out infinite paused;
 }
 
 .mesh-orb.orb-4 {
-    width: 50%;
-    height: 36%;
-    bottom: 18%;
-    right: -4%;
-    background: radial-gradient(circle, var(--fp-c4) 0%, transparent 66%);
+    width: 70%;
+    height: 48%;
+    bottom: 12%;
+    right: -12%;
+    background: radial-gradient(
+        circle,
+        color-mix(in srgb, var(--fp-c4) 92%, transparent) 0%,
+        color-mix(in srgb, var(--fp-c4) 52%, transparent) 34%,
+        color-mix(in srgb, var(--fp-c4) 14%, transparent) 58%,
+        transparent 74%
+    );
     animation: meshOrb4 10s ease-in-out infinite paused;
 }
 
@@ -1305,15 +1332,13 @@ body[data-ambient-motion="vivid"] .mesh-orb.orb-2 { animation-duration: 6.5s; }
 body[data-ambient-motion="vivid"] .mesh-orb.orb-3 { animation-duration: 7.5s; }
 body[data-ambient-motion="vivid"] .mesh-orb.orb-4 { animation-duration: 6s; }
 
-/* ===== Style 3: Aurora Waves (тонкие светящиеся ленты северного сияния) ===== */
+/* ===== Style 3: Aurora Waves (zero-blur feathered ellipses for 60fps mobile) ===== */
 .fp-bg-aurora {
     display: none;
     position: absolute;
-    inset: -80px;
+    inset: -15%;
     pointer-events: none;
-    filter: blur(28px);
     transform: translateZ(0);
-    will-change: transform;
 }
 
 body[data-ambient-style="aurora"] .fp-bg-aurora {
@@ -1322,43 +1347,61 @@ body[data-ambient-style="aurora"] .fp-bg-aurora {
 
 .aurora-wave {
     position: absolute;
-    left: -10%;
-    width: 120%;
-    height: 18%;
+    left: -15%;
+    width: 130%;
+    height: 28%;
     border-radius: 50%;
-    opacity: 0.84;
+    opacity: 0.78;
     will-change: transform;
     backface-visibility: hidden;
     -webkit-backface-visibility: hidden;
 }
 
 :root[data-fp-theme="light"] .aurora-wave {
-    opacity: 0.58;
+    opacity: 0.54;
 }
 
 body[data-ambient-motion="vivid"] .aurora-wave {
-    opacity: 0.95;
+    opacity: 0.92;
 }
 
 body[data-ambient-motion="soft"] .aurora-wave {
-    opacity: 0.6;
+    opacity: 0.56;
 }
 
 .aurora-wave.wave-1 {
-    top: 16%;
-    background: linear-gradient(105deg, transparent 14%, var(--fp-c1) 34%, var(--fp-c2) 66%, transparent 86%);
+    top: 10%;
+    background: radial-gradient(
+        ellipse 55% 48% at 50% 50%,
+        color-mix(in srgb, var(--fp-c1) 88%, transparent) 0%,
+        color-mix(in srgb, var(--fp-c2) 48%, transparent) 38%,
+        color-mix(in srgb, var(--fp-c2) 12%, transparent) 62%,
+        transparent 78%
+    );
     animation: auroraWave1 8s ease-in-out infinite paused;
 }
 
 .aurora-wave.wave-2 {
-    top: 45%;
-    background: linear-gradient(75deg, transparent 14%, var(--fp-c2) 34%, var(--fp-c3) 66%, transparent 86%);
+    top: 38%;
+    background: radial-gradient(
+        ellipse 55% 48% at 50% 50%,
+        color-mix(in srgb, var(--fp-c2) 88%, transparent) 0%,
+        color-mix(in srgb, var(--fp-c3) 48%, transparent) 38%,
+        color-mix(in srgb, var(--fp-c3) 12%, transparent) 62%,
+        transparent 78%
+    );
     animation: auroraWave2 10.5s ease-in-out infinite paused;
 }
 
 .aurora-wave.wave-3 {
-    bottom: 18%;
-    background: linear-gradient(115deg, transparent 14%, var(--fp-c3) 34%, var(--fp-c4) 66%, transparent 86%);
+    bottom: 10%;
+    background: radial-gradient(
+        ellipse 55% 48% at 50% 50%,
+        color-mix(in srgb, var(--fp-c3) 88%, transparent) 0%,
+        color-mix(in srgb, var(--fp-c4) 48%, transparent) 38%,
+        color-mix(in srgb, var(--fp-c4) 12%, transparent) 62%,
+        transparent 78%
+    );
     animation: auroraWave3 12s ease-in-out infinite paused;
 }
 

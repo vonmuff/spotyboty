@@ -2380,10 +2380,15 @@ function boostColorVividness(r, g, b) {
     return [nr, ng, nb];
 }
 
+const fpBgEl = fullPlayer.querySelector('.fp-bg');
+const fpArtHaloEl = fullPlayer.querySelector('.fp-art-halo');
+
 function writeAmbientPaletteVars(palette) {
     for (let i = 0; i < 4; i++) {
         const [r, g, b] = palette[i] || DEFAULT_AMBIENT_PALETTE[i];
-        fullPlayer.style.setProperty(`--fp-c${i + 1}`, `rgb(${r}, ${g}, ${b})`);
+        const val = `rgb(${r}, ${g}, ${b})`;
+        if (fpBgEl) fpBgEl.style.setProperty(`--fp-c${i + 1}`, val);
+        if (fpArtHaloEl) fpArtHaloEl.style.setProperty(`--fp-c${i + 1}`, val);
     }
 }
 
@@ -2406,6 +2411,7 @@ function applyAmbientPalette(targetPalette, instant = false) {
     const startPalette = currentAmbientPalette.map(c => [...c]);
     const durationMs = 680;
     const startTime = performance.now();
+    let lastWriteAt = 0;
 
     const step = (now) => {
         const t = Math.min(1, (now - startTime) / durationMs);
@@ -2416,7 +2422,11 @@ function applyAmbientPalette(targetPalette, instant = false) {
             Math.round(startPalette[i][2] + (normalizedTarget[i][2] - startPalette[i][2]) * eased),
         ]);
         currentAmbientPalette = blended;
-        writeAmbientPaletteVars(blended);
+        // На мобильных обновляем CSS-переменные ~24 раза/сек (каждые 40 мс), чтобы не грузить GPU-композитор
+        if (t >= 1 || now - lastWriteAt >= 40) {
+            lastWriteAt = now;
+            writeAmbientPaletteVars(blended);
+        }
 
         if (t < 1) {
             paletteMorphRafId = requestAnimationFrame(step);
