@@ -1156,6 +1156,37 @@ body.vinyl-cover .fp-art-box {
     box-shadow: 0 18px 44px rgba(0, 0, 0, 0.2), 0 0 0 5px rgba(0, 0, 0, 0.06);
 }
 
+body.vinyl-cover .fp-art-box::after {
+    content: '';
+    position: absolute;
+    z-index: 5;
+    width: 34px;
+    height: 34px;
+    border-radius: 50%;
+    background: radial-gradient(
+        circle,
+        #111116 0%,
+        #111116 42%,
+        rgba(255, 255, 255, 0.22) 45%,
+        rgba(20, 20, 26, 0.72) 56%,
+        rgba(20, 20, 26, 0.55) 100%
+    );
+    box-shadow: 0 0 0 1.5px rgba(255, 255, 255, 0.18), inset 0 1px 4px rgba(0, 0, 0, 0.75);
+    pointer-events: none;
+}
+
+:root[data-fp-theme="light"] body.vinyl-cover .fp-art-box::after {
+    background: radial-gradient(
+        circle,
+        var(--bg-main) 0%,
+        var(--bg-main) 42%,
+        rgba(0, 0, 0, 0.16) 45%,
+        rgba(255, 255, 255, 0.65) 56%,
+        rgba(240, 240, 245, 0.55) 100%
+    );
+    box-shadow: 0 0 0 1.5px rgba(0, 0, 0, 0.12), inset 0 1px 3px rgba(0, 0, 0, 0.2);
+}
+
 body.vinyl-cover .fp-art-box img {
     border-radius: 50%;
     animation: vinylSpin 20s linear infinite;
