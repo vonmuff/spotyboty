@@ -1310,8 +1310,10 @@ body[data-ambient-motion="vivid"] .mesh-orb.orb-4 { animation-duration: 6s; }
 .fp-bg-aurora {
     display: none;
     position: absolute;
-    inset: -15%;
+    inset: -80px;
     pointer-events: none;
+    filter: blur(28px);
+    transform: translateZ(0);
     will-change: transform;
 }
 
@@ -1321,13 +1323,14 @@ body[data-ambient-style="aurora"] .fp-bg-aurora {
 
 .aurora-wave {
     position: absolute;
-    left: -30%;
-    width: 160%;
-    height: 17%;
+    left: -10%;
+    width: 120%;
+    height: 18%;
     border-radius: 50%;
-    filter: blur(22px);
-    opacity: 0.82;
+    opacity: 0.84;
     will-change: transform;
+    backface-visibility: hidden;
+    -webkit-backface-visibility: hidden;
     transition: background 0.8s ease;
 }
 
@@ -1344,20 +1347,20 @@ body[data-ambient-motion="soft"] .aurora-wave {
 }
 
 .aurora-wave.wave-1 {
-    top: 12%;
-    background: linear-gradient(105deg, transparent 5%, var(--fp-c1) 28%, var(--fp-c2) 72%, transparent 95%);
+    top: 16%;
+    background: linear-gradient(105deg, transparent 14%, var(--fp-c1) 34%, var(--fp-c2) 66%, transparent 86%);
     animation: auroraWave1 8s ease-in-out infinite paused;
 }
 
 .aurora-wave.wave-2 {
-    top: 44%;
-    background: linear-gradient(75deg, transparent 5%, var(--fp-c2) 28%, var(--fp-c3) 72%, transparent 95%);
+    top: 45%;
+    background: linear-gradient(75deg, transparent 14%, var(--fp-c2) 34%, var(--fp-c3) 66%, transparent 86%);
     animation: auroraWave2 10.5s ease-in-out infinite paused;
 }
 
 .aurora-wave.wave-3 {
-    bottom: 14%;
-    background: linear-gradient(115deg, transparent 5%, var(--fp-c3) 28%, var(--fp-c4) 72%, transparent 95%);
+    bottom: 18%;
+    background: linear-gradient(115deg, transparent 14%, var(--fp-c3) 34%, var(--fp-c4) 66%, transparent 86%);
     animation: auroraWave3 12s ease-in-out infinite paused;
 }
 
