@@ -1138,6 +1138,82 @@ body.compact-list .icon-btn {
     height: 30px;
 }
 
+/* ===== Vinyl Cover Mode ===== */
+body.vinyl-cover .fp-art-box {
+    border-radius: 50%;
+    box-shadow: 0 22px 54px rgba(0, 0, 0, 0.62), 0 0 0 5px rgba(255, 255, 255, 0.08);
+}
+
+:root[data-fp-theme="light"] body.vinyl-cover .fp-art-box {
+    box-shadow: 0 18px 44px rgba(0, 0, 0, 0.2), 0 0 0 5px rgba(0, 0, 0, 0.06);
+}
+
+body.vinyl-cover .fp-art-box::after {
+    content: '';
+    position: absolute;
+    z-index: 5;
+    width: 44px;
+    height: 44px;
+    border-radius: 50%;
+    background: radial-gradient(
+        circle,
+        #0f0f13 0%,
+        #0f0f13 28%,
+        var(--accent) 30%,
+        var(--accent) 46%,
+        rgba(15, 15, 19, 0.9) 48%,
+        rgba(15, 15, 19, 0.72) 100%
+    );
+    box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.16), 0 2px 10px rgba(0, 0, 0, 0.5);
+    pointer-events: none;
+}
+
+body.vinyl-cover .fp-art-box img {
+    border-radius: 50%;
+    animation: vinylSpin 20s linear infinite;
+    animation-play-state: paused;
+}
+
+body.vinyl-cover .fp-art-box.playing img {
+    animation-play-state: running;
+}
+
+@keyframes vinylSpin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+}
+
+/* ===== Marquee Off & Reduced Motion ===== */
+body.no-marquee .marquee.scrolling {
+    -webkit-mask-image: none;
+    mask-image: none;
+    text-overflow: ellipsis;
+}
+
+body.no-marquee .marquee.scrolling .marquee-inner {
+    animation: none !important;
+    transform: none !important;
+    padding-right: 0;
+}
+
+body.reduced-motion .fp-ctrl-btn.play-pause.is-playing,
+body.reduced-motion .eq-overlay span,
+body.reduced-motion .track-item.entering,
+body.reduced-motion .track-item.restoring,
+body.reduced-motion .marquee.scrolling .marquee-inner,
+body.reduced-motion.vinyl-cover .fp-art-box img {
+    animation: none !important;
+}
+
+body.reduced-motion .track-item.entering {
+    opacity: 1;
+    transform: none;
+}
+
+body.reduced-motion .fp-bg-blur-layer {
+    display: none !important;
+}
+
 /* ===== Settings Bottom Sheet ===== */
 body.settings-open {
     overflow: hidden;

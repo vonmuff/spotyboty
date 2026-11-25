@@ -177,6 +177,14 @@
             </div>
 
             <div class="settings-section">
+                <div class="settings-label">Стиль обложки</div>
+                <div id="coverStyleSegment" class="segmented-control segmented-2">
+                    <button class="seg-btn" data-cover-style="square" type="button">Квадрат</button>
+                    <button class="seg-btn" data-cover-style="vinyl" type="button">Винил</button>
+                </div>
+            </div>
+
+            <div class="settings-section">
                 <div class="settings-label-row">
                     <span class="settings-label">Таймер сна</span>
                     <span id="sleepTimerBadge" class="sleep-badge"></span>
@@ -265,6 +273,22 @@
                             <span class="setting-desc">Плавно докручивать список при переключении</span>
                         </span>
                         <input type="checkbox" id="optAutoScroll" class="toggle-input">
+                        <span class="toggle-switch"></span>
+                    </label>
+                    <label class="setting-row">
+                        <span class="setting-text">
+                            <span class="setting-title">Бегущая строка (Marquee)</span>
+                            <span class="setting-desc">Прокручивать длинные названия треков</span>
+                        </span>
+                        <input type="checkbox" id="optMarquee" class="toggle-input">
+                        <span class="toggle-switch"></span>
+                    </label>
+                    <label class="setting-row">
+                        <span class="setting-text">
+                            <span class="setting-title">Экономия заряда</span>
+                            <span class="setting-desc">Отключить лишние анимации и свечение</span>
+                        </span>
+                        <input type="checkbox" id="optReducedMotion" class="toggle-input">
                         <span class="toggle-switch"></span>
                     </label>
                     <label class="setting-row">

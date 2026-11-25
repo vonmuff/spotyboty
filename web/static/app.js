@@ -18,6 +18,7 @@ const DEFAULT_SETTINGS = {
     accent: 'spotify',
     fpTheme: 'auto', // 'auto' | 'dark' | 'light'
     density: 'normal', // 'normal' | 'compact'
+    coverStyle: 'square', // 'square' | 'vinyl'
     playbackRate: 1,
     audioFade: true,
     autoNext: true,
@@ -27,6 +28,8 @@ const DEFAULT_SETTINGS = {
     autoOpenPlayer: false,
     rememberLastTrack: true,
     autoScroll: true,
+    marquee: true,
+    reducedMotion: false,
     haptic: true,
 };
 
@@ -81,6 +84,9 @@ function applyUserSettings() {
     document.body.classList.toggle('no-ambient-bg', !userSettings.ambientBg);
     document.body.classList.toggle('hide-send-btn', !userSettings.showSendBtn);
     document.body.classList.toggle('compact-list', userSettings.density === 'compact');
+    document.body.classList.toggle('vinyl-cover', userSettings.coverStyle === 'vinyl');
+    document.body.classList.toggle('no-marquee', !userSettings.marquee);
+    document.body.classList.toggle('reduced-motion', Boolean(userSettings.reducedMotion));
     applyTelegramTheme();
 }
 
@@ -195,6 +201,7 @@ const settingsCloseBtn = document.getElementById('settingsCloseBtn');
 const accentPalette = document.getElementById('accentPalette');
 const fpThemeSegment = document.getElementById('fpThemeSegment');
 const densitySegment = document.getElementById('densitySegment');
+const coverStyleSegment = document.getElementById('coverStyleSegment');
 const sleepSegment = document.getElementById('sleepSegment');
 const sleepTimerBadge = document.getElementById('sleepTimerBadge');
 const speedSegment = document.getElementById('speedSegment');
@@ -206,6 +213,8 @@ const optShowSendBtn = document.getElementById('optShowSendBtn');
 const optAutoOpenPlayer = document.getElementById('optAutoOpenPlayer');
 const optRememberLast = document.getElementById('optRememberLast');
 const optAutoScroll = document.getElementById('optAutoScroll');
+const optMarquee = document.getElementById('optMarquee');
+const optReducedMotion = document.getElementById('optReducedMotion');
 const optHaptic = document.getElementById('optHaptic');
 const settingsResetBtn = document.getElementById('settingsResetBtn');
 
@@ -363,6 +372,9 @@ function syncSettingsUI() {
     densitySegment.querySelectorAll('.seg-btn').forEach((btn) => {
         btn.classList.toggle('active', btn.dataset.density === userSettings.density);
     });
+    coverStyleSegment.querySelectorAll('.seg-btn').forEach((btn) => {
+        btn.classList.toggle('active', btn.dataset.coverStyle === userSettings.coverStyle);
+    });
     sleepSegment.querySelectorAll('.seg-btn').forEach((btn) => {
         btn.classList.toggle('active', btn.dataset.sleep === sleepMode);
     });
@@ -377,6 +389,8 @@ function syncSettingsUI() {
     optAutoOpenPlayer.checked = Boolean(userSettings.autoOpenPlayer);
     optRememberLast.checked = Boolean(userSettings.rememberLastTrack);
     optAutoScroll.checked = Boolean(userSettings.autoScroll);
+    optMarquee.checked = Boolean(userSettings.marquee);
+    optReducedMotion.checked = Boolean(userSettings.reducedMotion);
     optHaptic.checked = Boolean(userSettings.haptic);
 }
 
@@ -517,6 +531,16 @@ densitySegment.addEventListener('click', (e) => {
     haptic('light');
 });
 
+coverStyleSegment.addEventListener('click', (e) => {
+    const btn = e.target.closest('.seg-btn');
+    if (!btn) return;
+    userSettings.coverStyle = btn.dataset.coverStyle;
+    saveUserSettings();
+    applyUserSettings();
+    syncSettingsUI();
+    haptic('light');
+});
+
 sleepSegment.addEventListener('click', (e) => {
     const btn = e.target.closest('.seg-btn');
     if (!btn) return;
@@ -587,6 +611,21 @@ optRememberLast.addEventListener('change', () => {
 optAutoScroll.addEventListener('change', () => {
     userSettings.autoScroll = optAutoScroll.checked;
     saveUserSettings();
+    haptic('light');
+});
+
+optMarquee.addEventListener('change', () => {
+    userSettings.marquee = optMarquee.checked;
+    saveUserSettings();
+    applyUserSettings();
+    if (userSettings.marquee) refreshAllMarquees();
+    haptic('light');
+});
+
+optReducedMotion.addEventListener('change', () => {
+    userSettings.reducedMotion = optReducedMotion.checked;
+    saveUserSettings();
+    applyUserSettings();
     haptic('light');
 });
 
