@@ -1108,6 +1108,14 @@ body.hide-send-btn .icon-btn[data-action="send"] {
     display: none !important;
 }
 
+body.hide-delete-btn .icon-btn[data-action="delete"] {
+    display: none !important;
+}
+
+body.hide-send-btn.hide-delete-btn .track-actions {
+    display: none !important;
+}
+
 body.compact-list .track-list {
     gap: 5px;
 }

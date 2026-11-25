@@ -169,6 +169,16 @@
             </div>
 
             <div class="settings-section">
+                <div class="settings-label">Сортировка плейлиста</div>
+                <div id="sortSegment" class="segmented-control segmented-4">
+                    <button class="seg-btn" data-sort="newest" type="button">Новые</button>
+                    <button class="seg-btn" data-sort="oldest" type="button">Старые</button>
+                    <button class="seg-btn" data-sort="title" type="button">А–Я</button>
+                    <button class="seg-btn" data-sort="artist" type="button">Автор</button>
+                </div>
+            </div>
+
+            <div class="settings-section">
                 <div class="settings-label">Плотность списка</div>
                 <div id="densitySegment" class="segmented-control segmented-2">
                     <button class="seg-btn" data-density="normal" type="button">Обычный</button>
@@ -249,6 +259,14 @@
                             <span class="setting-desc">Показывать иконку отправки трека в чат</span>
                         </span>
                         <input type="checkbox" id="optShowSendBtn" class="toggle-input">
+                        <span class="toggle-switch"></span>
+                    </label>
+                    <label class="setting-row">
+                        <span class="setting-text">
+                            <span class="setting-title">Скрыть кнопку удаления</span>
+                            <span class="setting-desc">Убирает корзину с карточек от случайных нажатий</span>
+                        </span>
+                        <input type="checkbox" id="optHideDeleteBtn" class="toggle-input">
                         <span class="toggle-switch"></span>
                     </label>
                     <label class="setting-row">

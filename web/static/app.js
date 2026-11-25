@@ -17,6 +17,7 @@ const ACCENT_PRESETS = {
 const DEFAULT_SETTINGS = {
     accent: 'spotify',
     fpTheme: 'auto', // 'auto' | 'dark' | 'light'
+    sortOrder: 'newest', // 'newest' | 'oldest' | 'title' | 'artist'
     density: 'normal', // 'normal' | 'compact'
     coverStyle: 'square', // 'square' | 'vinyl'
     playbackRate: 1,
@@ -25,6 +26,7 @@ const DEFAULT_SETTINGS = {
     equalizer: true,
     ambientBg: true,
     showSendBtn: true,
+    hideDeleteBtn: false,
     autoOpenPlayer: false,
     rememberLastTrack: true,
     autoScroll: true,
@@ -83,6 +85,7 @@ function applyUserSettings() {
     document.body.classList.toggle('no-equalizer', !userSettings.equalizer);
     document.body.classList.toggle('no-ambient-bg', !userSettings.ambientBg);
     document.body.classList.toggle('hide-send-btn', !userSettings.showSendBtn);
+    document.body.classList.toggle('hide-delete-btn', Boolean(userSettings.hideDeleteBtn));
     document.body.classList.toggle('compact-list', userSettings.density === 'compact');
     document.body.classList.toggle('vinyl-cover', userSettings.coverStyle === 'vinyl');
     document.body.classList.toggle('no-marquee', !userSettings.marquee);
@@ -200,6 +203,7 @@ const settingsSheet = document.getElementById('settingsSheet');
 const settingsCloseBtn = document.getElementById('settingsCloseBtn');
 const accentPalette = document.getElementById('accentPalette');
 const fpThemeSegment = document.getElementById('fpThemeSegment');
+const sortSegment = document.getElementById('sortSegment');
 const densitySegment = document.getElementById('densitySegment');
 const coverStyleSegment = document.getElementById('coverStyleSegment');
 const sleepSegment = document.getElementById('sleepSegment');
@@ -210,6 +214,7 @@ const optAutoNext = document.getElementById('optAutoNext');
 const optEqualizer = document.getElementById('optEqualizer');
 const optAmbientBg = document.getElementById('optAmbientBg');
 const optShowSendBtn = document.getElementById('optShowSendBtn');
+const optHideDeleteBtn = document.getElementById('optHideDeleteBtn');
 const optAutoOpenPlayer = document.getElementById('optAutoOpenPlayer');
 const optRememberLast = document.getElementById('optRememberLast');
 const optAutoScroll = document.getElementById('optAutoScroll');
@@ -369,6 +374,9 @@ function syncSettingsUI() {
     fpThemeSegment.querySelectorAll('.seg-btn').forEach((btn) => {
         btn.classList.toggle('active', btn.dataset.fpTheme === userSettings.fpTheme);
     });
+    sortSegment.querySelectorAll('.seg-btn').forEach((btn) => {
+        btn.classList.toggle('active', btn.dataset.sort === userSettings.sortOrder);
+    });
     densitySegment.querySelectorAll('.seg-btn').forEach((btn) => {
         btn.classList.toggle('active', btn.dataset.density === userSettings.density);
     });
@@ -386,6 +394,7 @@ function syncSettingsUI() {
     optEqualizer.checked = Boolean(userSettings.equalizer);
     optAmbientBg.checked = Boolean(userSettings.ambientBg);
     optShowSendBtn.checked = Boolean(userSettings.showSendBtn);
+    optHideDeleteBtn.checked = Boolean(userSettings.hideDeleteBtn);
     optAutoOpenPlayer.checked = Boolean(userSettings.autoOpenPlayer);
     optRememberLast.checked = Boolean(userSettings.rememberLastTrack);
     optAutoScroll.checked = Boolean(userSettings.autoScroll);
@@ -521,6 +530,16 @@ fpThemeSegment.addEventListener('click', (e) => {
     haptic('light');
 });
 
+sortSegment.addEventListener('click', (e) => {
+    const btn = e.target.closest('.seg-btn');
+    if (!btn) return;
+    userSettings.sortOrder = btn.dataset.sort;
+    saveUserSettings();
+    syncSettingsUI();
+    applySearchFilter();
+    haptic('light');
+});
+
 densitySegment.addEventListener('click', (e) => {
     const btn = e.target.closest('.seg-btn');
     if (!btn) return;
@@ -591,6 +610,13 @@ optShowSendBtn.addEventListener('change', () => {
     haptic('light');
 });
 
+optHideDeleteBtn.addEventListener('change', () => {
+    userSettings.hideDeleteBtn = optHideDeleteBtn.checked;
+    saveUserSettings();
+    applyUserSettings();
+    haptic('light');
+});
+
 optAutoOpenPlayer.addEventListener('change', () => {
     userSettings.autoOpenPlayer = optAutoOpenPlayer.checked;
     saveUserSettings();
@@ -642,6 +668,7 @@ settingsResetBtn.addEventListener('click', () => {
     applyPlaybackRate();
     applyUserSettings();
     syncSettingsUI();
+    if (allTracks.length > 0) applySearchFilter();
     haptic('medium');
 });
 
@@ -786,7 +813,7 @@ async function loadPlaylist() {
         }
         const data = await res.json();
         allTracks = data.tracks || [];
-        filteredTracks = [...allTracks];
+        filteredTracks = getSortedTracks(allTracks);
         renderTracks({ animateEntrance: true });
         restoreLastTrackIfEnabled();
     } catch (err) {
@@ -1525,13 +1552,35 @@ function bindSeekSlider(sliderEl, wrapperEl) {
 bindSeekSlider(seekSlider, seekWrapper);
 bindSeekSlider(fpSeekSlider, fpSeekWrapper);
 
+function getSortedTracks(list) {
+    const copy = [...list];
+    const order = userSettings.sortOrder || 'newest';
+    if (order === 'oldest') {
+        return copy.reverse();
+    }
+    if (order === 'title') {
+        return copy.sort((a, b) =>
+            String(a.title || a.name || '').localeCompare(String(b.title || b.name || ''), undefined, { sensitivity: 'base' })
+        );
+    }
+    if (order === 'artist') {
+        return copy.sort((a, b) => {
+            const cmp = String(a.performer || '').localeCompare(String(b.performer || ''), undefined, { sensitivity: 'base' });
+            if (cmp !== 0) return cmp;
+            return String(a.title || a.name || '').localeCompare(String(b.title || b.name || ''), undefined, { sensitivity: 'base' });
+        });
+    }
+    return copy;
+}
+
 function applySearchFilter(options = {}) {
     const q = searchInput.value.trim().toLowerCase();
-    filteredTracks = allTracks.filter(t =>
+    const matched = allTracks.filter(t =>
         (t.title && t.title.toLowerCase().includes(q)) ||
         (t.performer && t.performer.toLowerCase().includes(q)) ||
         (t.name && t.name.toLowerCase().includes(q))
     );
+    filteredTracks = getSortedTracks(matched);
     renderTracks(options);
 }
 
