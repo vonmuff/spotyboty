@@ -300,6 +300,14 @@
                 </div>
 
                 <div class="settings-section">
+                    <div class="settings-label">Горизонтальный свайп</div>
+                    <div id="swipeModeSegment" class="segmented-control segmented-2">
+                        <button class="seg-btn" data-swipe-mode="playlists" type="button">Плейлисты</button>
+                        <button class="seg-btn" data-swipe-mode="tracks" type="button">Треки</button>
+                    </div>
+                </div>
+
+                <div class="settings-section">
                     <div class="settings-list">
                         <label class="setting-row">
                             <span class="setting-text">
@@ -445,6 +453,35 @@
             </div>
             <div id="trackPlaylistsList" class="picker-track-list"></div>
             <button id="trackPlaylistsCreateBtn" class="modal-primary-btn" type="button">＋ Создать новый плейлист</button>
+        </div>
+    </div>
+
+    <div id="trackActionsBackdrop" class="settings-backdrop" aria-hidden="true">
+        <div id="trackActionsSheet" class="settings-sheet action-sheet" role="dialog" aria-modal="true" aria-label="Действия с треком">
+            <div class="settings-handle"></div>
+            <div class="settings-header" style="margin-bottom:12px;">
+                <div class="tp-header-text">
+                    <h2 id="trackActionsTitle">Трек</h2>
+                    <div id="trackActionsSubtitle" class="tp-subtitle"></div>
+                </div>
+                <button id="trackActionsCloseBtn" class="header-icon-btn" type="button" aria-label="Закрыть">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+                </button>
+            </div>
+            <div class="action-sheet-list">
+                <button id="trackActPlaylistBtn" class="action-sheet-btn" type="button">
+                    <span class="action-sheet-icon">📂</span>
+                    <span>Добавить в плейлист</span>
+                </button>
+                <button id="trackActSendBtn" class="action-sheet-btn" type="button">
+                    <span class="action-sheet-icon">📤</span>
+                    <span>Отправить в чат</span>
+                </button>
+                <button id="trackActDeleteBtn" class="action-sheet-btn danger" type="button">
+                    <span class="action-sheet-icon">🗑</span>
+                    <span id="trackActDeleteLabel">Удалить трек</span>
+                </button>
+            </div>
         </div>
     </div>
 

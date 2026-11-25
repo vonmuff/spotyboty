@@ -19,6 +19,7 @@ const DEFAULT_SETTINGS = {
     fpTheme: 'auto', // 'auto' | 'dark' | 'light'
     sortOrder: 'newest', // 'newest' | 'oldest' | 'title' | 'artist'
     density: 'normal', // 'normal' | 'compact'
+    swipeMode: 'playlists', // 'playlists' | 'tracks'
     coverStyle: 'square', // 'square' | 'vinyl'
     playbackRate: 1,
     audioFade: true,
@@ -117,7 +118,9 @@ let isPlActionsOpen = false;
 let isPlModalOpen = false;
 let isAddTracksModalOpen = false;
 let isTrackPlaylistsModalOpen = false;
+let isTrackActionsOpen = false;
 let trackPlaylistsTargetFileId = null;
+let trackActionsTargetFileId = null;
 let pendingAddFileIdAfterCreate = null;
 let editingPlaylistId = null;
 let selectedModalEmoji = '🎧';
@@ -205,6 +208,14 @@ const trackPlaylistsSubtitle = document.getElementById('trackPlaylistsSubtitle')
 const trackPlaylistsCloseBtn = document.getElementById('trackPlaylistsCloseBtn');
 const trackPlaylistsList = document.getElementById('trackPlaylistsList');
 const trackPlaylistsCreateBtn = document.getElementById('trackPlaylistsCreateBtn');
+const trackActionsBackdrop = document.getElementById('trackActionsBackdrop');
+const trackActionsTitle = document.getElementById('trackActionsTitle');
+const trackActionsSubtitle = document.getElementById('trackActionsSubtitle');
+const trackActionsCloseBtn = document.getElementById('trackActionsCloseBtn');
+const trackActPlaylistBtn = document.getElementById('trackActPlaylistBtn');
+const trackActSendBtn = document.getElementById('trackActSendBtn');
+const trackActDeleteBtn = document.getElementById('trackActDeleteBtn');
+const trackActDeleteLabel = document.getElementById('trackActDeleteLabel');
 const scrollTopBtn = document.getElementById('scrollTopBtn');
 const trackListEl = document.getElementById('trackList');
 const trackCountEl = document.getElementById('trackCount');
@@ -261,6 +272,7 @@ const accentPalette = document.getElementById('accentPalette');
 const fpThemeSegment = document.getElementById('fpThemeSegment');
 const sortSegment = document.getElementById('sortSegment');
 const densitySegment = document.getElementById('densitySegment');
+const swipeModeSegment = document.getElementById('swipeModeSegment');
 const coverStyleSegment = document.getElementById('coverStyleSegment');
 const sleepSegment = document.getElementById('sleepSegment');
 const sleepTimerBadge = document.getElementById('sleepTimerBadge');
@@ -436,6 +448,9 @@ function syncSettingsUI() {
     densitySegment.querySelectorAll('.seg-btn').forEach((btn) => {
         btn.classList.toggle('active', btn.dataset.density === userSettings.density);
     });
+    swipeModeSegment.querySelectorAll('.seg-btn').forEach((btn) => {
+        btn.classList.toggle('active', btn.dataset.swipeMode === (userSettings.swipeMode || 'playlists'));
+    });
     coverStyleSegment.querySelectorAll('.seg-btn').forEach((btn) => {
         btn.classList.toggle('active', btn.dataset.coverStyle === userSettings.coverStyle);
     });
@@ -602,6 +617,15 @@ densitySegment.addEventListener('click', (e) => {
     userSettings.density = btn.dataset.density;
     saveUserSettings();
     applyUserSettings();
+    syncSettingsUI();
+    haptic('light');
+});
+
+swipeModeSegment.addEventListener('click', (e) => {
+    const btn = e.target.closest('.seg-btn');
+    if (!btn) return;
+    userSettings.swipeMode = btn.dataset.swipeMode === 'tracks' ? 'tracks' : 'playlists';
+    saveUserSettings();
     syncSettingsUI();
     haptic('light');
 });
@@ -1121,9 +1145,10 @@ function animateTabSwipeSwitch(targetPlId, direction) {
 
 document.addEventListener('touchstart', (e) => {
     if (userPlaylists.length === 0) return;
-    if (isFullPlayerOpen || isSettingsOpen || isPlActionsOpen || isPlModalOpen || isAddTracksModalOpen || isTrackPlaylistsModalOpen) return;
+    if (isFullPlayerOpen || isSettingsOpen || isPlActionsOpen || isPlModalOpen || isAddTracksModalOpen || isTrackPlaylistsModalOpen || isTrackActionsOpen) return;
     if (e.touches.length !== 1) return;
-    if (e.target.closest('.header, .player-bar, .seek-wrapper, .undo-toast, .track-swipe-wrap, input, button')) return;
+    if (e.target.closest('.header, .player-bar, .seek-wrapper, .undo-toast, .drag-handle, input, button')) return;
+    if (userSettings.swipeMode === 'tracks' && e.target.closest('.track-swipe-wrap')) return;
 
     tabSwipeStartX = e.touches[0].clientX;
     tabSwipeStartY = e.touches[0].clientY;
@@ -1505,6 +1530,57 @@ trackPlaylistsCreateBtn.addEventListener('click', () => {
     openPlaylistModal(null);
 });
 
+// ===== Track Long-Press Action Sheet =====
+function openTrackActions(fileId) {
+    const track = allTracks.find(t => t.file_id === fileId);
+    if (!track || isTrackActionsOpen) return;
+    trackActionsTargetFileId = fileId;
+    trackActionsTitle.textContent = track.title || track.name;
+    trackActionsSubtitle.textContent = track.performer || 'Spotify';
+    trackActDeleteLabel.textContent = activePlaylistId === 'all' ? 'Удалить трек' : 'Убрать из плейлиста';
+
+    isTrackActionsOpen = true;
+    document.body.classList.add('settings-open');
+    trackActionsBackdrop.classList.add('open');
+    trackActionsBackdrop.setAttribute('aria-hidden', 'false');
+    haptic('medium');
+    try { tg.BackButton?.show(); } catch (e) {}
+}
+
+function closeTrackActions() {
+    if (!isTrackActionsOpen) return;
+    isTrackActionsOpen = false;
+    trackActionsTargetFileId = null;
+    trackActionsBackdrop.classList.remove('open');
+    trackActionsBackdrop.setAttribute('aria-hidden', 'true');
+    if (!isSettingsOpen && !isPlModalOpen && !isAddTracksModalOpen && !isPlActionsOpen && !isTrackPlaylistsModalOpen) {
+        document.body.classList.remove('settings-open');
+    }
+    if (!isFullPlayerOpen && !isSettingsOpen && !isPlModalOpen && !isAddTracksModalOpen && !isPlActionsOpen && !isTrackPlaylistsModalOpen) {
+        try { tg.BackButton?.hide(); } catch (e) {}
+    }
+}
+
+trackActionsCloseBtn.addEventListener('click', closeTrackActions);
+trackActionsBackdrop.addEventListener('click', (e) => {
+    if (e.target === trackActionsBackdrop) closeTrackActions();
+});
+trackActPlaylistBtn.addEventListener('click', () => {
+    const fid = trackActionsTargetFileId;
+    closeTrackActions();
+    if (fid) openTrackPlaylistsModal(fid);
+});
+trackActSendBtn.addEventListener('click', () => {
+    const fid = trackActionsTargetFileId;
+    closeTrackActions();
+    if (fid) sendToChat(fid);
+});
+trackActDeleteBtn.addEventListener('click', () => {
+    const fid = trackActionsTargetFileId;
+    closeTrackActions();
+    if (fid) deleteTrack(fid);
+});
+
 plAddTracksBtn.addEventListener('click', () => {
     closePlaylistActions();
     openAddTracksModal();
@@ -1681,9 +1757,23 @@ function renderTracks(options = {}) {
     });
 }
 
-// ===== Track Card Swipe (Right -> Add to Playlist, Left -> Delete) =====
+// ===== Track Card Long-Press (Context Menu) & Optional Swipe =====
 const CARD_SWIPE_THRESHOLD = 74;
 let cardSwipeState = null;
+let trackLongPressState = null;
+
+function cancelTrackLongPress() {
+    if (trackLongPressState) {
+        if (trackLongPressState.timer) clearTimeout(trackLongPressState.timer);
+        trackLongPressState = null;
+    }
+}
+
+trackListEl.addEventListener('contextmenu', (e) => {
+    if (e.target.closest('.track-swipe-wrap')) {
+        e.preventDefault();
+    }
+});
 
 function resetCardSwipeVisual(state) {
     if (!state) return;
@@ -1694,7 +1784,7 @@ function resetCardSwipeVisual(state) {
 
 trackListEl.addEventListener('pointerdown', (e) => {
     if (e.pointerType === 'mouse' && e.button !== 0) return;
-    if (isFullPlayerOpen || isSettingsOpen || isPlActionsOpen || isPlModalOpen || isAddTracksModalOpen || isTrackPlaylistsModalOpen) return;
+    if (isFullPlayerOpen || isSettingsOpen || isPlActionsOpen || isPlModalOpen || isAddTracksModalOpen || isTrackPlaylistsModalOpen || isTrackActionsOpen) return;
     if (trackDragState) return;
     if (e.target.closest('.drag-handle, button')) return;
     const wrapEl = e.target.closest('.track-swipe-wrap');
@@ -1703,12 +1793,37 @@ trackListEl.addEventListener('pointerdown', (e) => {
     const bgEl = wrapEl.querySelector('.swipe-bg');
     if (!itemEl || !bgEl) return;
 
+    const fileId = wrapEl.dataset.fileId;
+
+    // Долгий тап по карточке (360 мс) — открывает меню действий трека в любом режиме свайпа
+    cancelTrackLongPress();
+    const lpState = {
+        pointerId: e.pointerId,
+        startX: e.clientX,
+        startY: e.clientY,
+        timer: null,
+    };
+    lpState.timer = setTimeout(() => {
+        if (trackLongPressState !== lpState) return;
+        trackLongPressState = null;
+        if (cardSwipeState && cardSwipeState.locked === 'horizontal') return;
+        cardSwipeState = null;
+        tabSwipeActive = false;
+        suppressNextTrackClick = true;
+        setTimeout(() => { suppressNextTrackClick = false; }, 320);
+        openTrackActions(fileId);
+    }, 360);
+    trackLongPressState = lpState;
+
+    // Свайп самой карточки работает только если выбран режим 'tracks'
+    if (userSettings.swipeMode !== 'tracks') return;
+
     cardSwipeState = {
         pointerId: e.pointerId,
         wrapEl,
         itemEl,
         bgEl,
-        fileId: wrapEl.dataset.fileId,
+        fileId,
         startX: e.clientX,
         startY: e.clientY,
         dx: 0,
@@ -1718,6 +1833,11 @@ trackListEl.addEventListener('pointerdown', (e) => {
 });
 
 trackListEl.addEventListener('pointermove', (e) => {
+    if (trackLongPressState && e.pointerId === trackLongPressState.pointerId) {
+        if (Math.abs(e.clientX - trackLongPressState.startX) > 8 || Math.abs(e.clientY - trackLongPressState.startY) > 8) {
+            cancelTrackLongPress();
+        }
+    }
     if (!cardSwipeState || e.pointerId !== cardSwipeState.pointerId) return;
     const s = cardSwipeState;
     const dx = e.clientX - s.startX;
@@ -1727,6 +1847,7 @@ trackListEl.addEventListener('pointermove', (e) => {
         if (Math.abs(dx) < 10 && Math.abs(dy) < 10) return;
         if (Math.abs(dx) > Math.abs(dy) * 1.25) {
             s.locked = 'horizontal';
+            cancelTrackLongPress();
             s.itemEl.classList.add('swiping');
             try { trackListEl.setPointerCapture(s.pointerId); } catch (err) {}
         } else {
@@ -1760,6 +1881,9 @@ trackListEl.addEventListener('pointermove', (e) => {
 });
 
 function endCardSwipe(e, cancelled = false) {
+    if (trackLongPressState && (!e || e.pointerId === trackLongPressState.pointerId)) {
+        cancelTrackLongPress();
+    }
     if (!cardSwipeState || (e && e.pointerId !== cardSwipeState.pointerId)) return;
     const s = cardSwipeState;
     cardSwipeState = null;
@@ -2046,7 +2170,9 @@ try {
 
 try {
     tg.BackButton?.onClick(() => {
-        if (isTrackPlaylistsModalOpen) {
+        if (isTrackActionsOpen) {
+            closeTrackActions();
+        } else if (isTrackPlaylistsModalOpen) {
             closeTrackPlaylistsModal();
         } else if (isAddTracksModalOpen) {
             closeAddTracksModal();
@@ -2064,7 +2190,8 @@ try {
 
 document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') {
-        if (isTrackPlaylistsModalOpen) closeTrackPlaylistsModal();
+        if (isTrackActionsOpen) closeTrackActions();
+        else if (isTrackPlaylistsModalOpen) closeTrackPlaylistsModal();
         else if (isAddTracksModalOpen) closeAddTracksModal();
         else if (isPlModalOpen) closePlaylistModal();
         else if (isPlActionsOpen) closePlaylistActions();
