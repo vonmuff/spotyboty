@@ -98,6 +98,9 @@ const authHeaders = () => ({ 'X-Telegram-Init-Data': initData });
 
 let allTracks = [];
 let filteredTracks = [];
+let userPlaylists = []; // [{ id, name, emoji, track_ids: [...] }]
+let activePlaylistId = 'all'; // 'all' | number
+let playbackQueueIds = []; // Очередь воспроизведения той вкладки, откуда запустили трек
 let shuffledIds = [];
 let currentFileId = null;
 let isRepeat = false;
@@ -105,6 +108,11 @@ let isShuffle = false;
 let isSeeking = false;
 let isFullPlayerOpen = false;
 let isSwitchingTrack = false;
+let isPlModalOpen = false;
+let isAddTracksModalOpen = false;
+let editingPlaylistId = null;
+let selectedModalEmoji = '🎧';
+let pickerSelectedIds = new Set();
 
 function haptic(style = 'light') {
     if (!userSettings.haptic) return;
@@ -113,8 +121,17 @@ function haptic(style = 'light') {
     } catch (e) {}
 }
 
+function getBaseQueueIds() {
+    if (playbackQueueIds.length > 0) {
+        const allSet = new Set(allTracks.map(t => t.file_id));
+        const valid = playbackQueueIds.filter(id => allSet.has(id));
+        if (valid.length > 0) return valid;
+    }
+    return filteredTracks.map(t => t.file_id);
+}
+
 function rebuildShuffleQueue() {
-    const ids = filteredTracks.map(t => t.file_id);
+    const ids = [...getBaseQueueIds()];
     for (let i = ids.length - 1; i > 0; i--) {
         const j = Math.floor(Math.random() * (i + 1));
         [ids[i], ids[j]] = [ids[j], ids[i]];
@@ -130,16 +147,17 @@ function rebuildShuffleQueue() {
 }
 
 function getActiveOrderIds() {
+    const baseIds = getBaseQueueIds();
     if (isShuffle) {
-        const validSet = new Set(filteredTracks.map(t => t.file_id));
+        const validSet = new Set(baseIds);
         const cleaned = shuffledIds.filter(id => validSet.has(id));
-        if (cleaned.length !== filteredTracks.length) {
+        if (cleaned.length !== baseIds.length) {
             rebuildShuffleQueue();
             return shuffledIds;
         }
         return cleaned;
     }
-    return filteredTracks.map(t => t.file_id);
+    return baseIds;
 }
 
 function getCurrentIndex() {
@@ -149,6 +167,25 @@ function getCurrentIndex() {
 
 const audio = document.getElementById('audioElement');
 const headerEl = document.getElementById('headerEl');
+const playlistTabs = document.getElementById('playlistTabs');
+const playlistToolbar = document.getElementById('playlistToolbar');
+const plAddTracksBtn = document.getElementById('plAddTracksBtn');
+const plEditBtn = document.getElementById('plEditBtn');
+const plDeleteBtn = document.getElementById('plDeleteBtn');
+const plModalBackdrop = document.getElementById('plModalBackdrop');
+const plModalSheet = document.getElementById('plModalSheet');
+const plModalTitle = document.getElementById('plModalTitle');
+const plModalCloseBtn = document.getElementById('plModalCloseBtn');
+const plEmojiPicker = document.getElementById('plEmojiPicker');
+const plNameInput = document.getElementById('plNameInput');
+const plModalSaveBtn = document.getElementById('plModalSaveBtn');
+const addTracksBackdrop = document.getElementById('addTracksBackdrop');
+const addTracksSheet = document.getElementById('addTracksSheet');
+const addTracksTitle = document.getElementById('addTracksTitle');
+const addTracksCloseBtn = document.getElementById('addTracksCloseBtn');
+const addTracksSearch = document.getElementById('addTracksSearch');
+const addTracksList = document.getElementById('addTracksList');
+const addTracksSaveBtn = document.getElementById('addTracksSaveBtn');
 const scrollTopBtn = document.getElementById('scrollTopBtn');
 const trackListEl = document.getElementById('trackList');
 const trackCountEl = document.getElementById('trackCount');
@@ -800,6 +837,296 @@ function restoreLastTrackIfEnabled() {
     syncActiveTrackInDOM();
 }
 
+function getActiveCustomPlaylist() {
+    if (activePlaylistId === 'all') return null;
+    return userPlaylists.find(p => p.id === activePlaylistId) || null;
+}
+
+function getTracksForActivePlaylist() {
+    const pl = getActiveCustomPlaylist();
+    if (!pl) return allTracks;
+    const byId = new Map(allTracks.map(t => [t.file_id, t]));
+    return pl.track_ids.map(fid => byId.get(fid)).filter(Boolean);
+}
+
+function renderPlaylistTabs() {
+    playlistTabs.innerHTML = '';
+
+    const allBtn = document.createElement('button');
+    allBtn.type = 'button';
+    allBtn.className = `pl-tab ${activePlaylistId === 'all' ? 'active' : ''}`;
+    allBtn.dataset.plId = 'all';
+    allBtn.innerHTML = `🎵 Все <span class="pl-tab-count">${allTracks.length}</span>`;
+    allBtn.addEventListener('click', () => selectPlaylistTab('all'));
+    playlistTabs.appendChild(allBtn);
+
+    userPlaylists.forEach((pl) => {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = `pl-tab ${activePlaylistId === pl.id ? 'active' : ''}`;
+        btn.dataset.plId = String(pl.id);
+        btn.innerHTML = `${escapeHtml(pl.emoji || '🎧')} ${escapeHtml(pl.name)} <span class="pl-tab-count">${pl.track_ids.length}</span>`;
+        btn.addEventListener('click', () => selectPlaylistTab(pl.id));
+        playlistTabs.appendChild(btn);
+    });
+
+    const addBtn = document.createElement('button');
+    addBtn.type = 'button';
+    addBtn.className = 'pl-tab add-tab';
+    addBtn.textContent = '＋';
+    addBtn.title = 'Создать плейлист';
+    addBtn.addEventListener('click', () => openPlaylistModal(null));
+    playlistTabs.appendChild(addBtn);
+
+    const activeTabEl = playlistTabs.querySelector('.pl-tab.active');
+    if (activeTabEl) {
+        activeTabEl.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' });
+    }
+
+    playlistToolbar.style.display = activePlaylistId === 'all' ? 'none' : 'flex';
+}
+
+function selectPlaylistTab(plId, animate = false) {
+    if (activePlaylistId === plId && !animate) return;
+    activePlaylistId = plId;
+    haptic('light');
+    renderPlaylistTabs();
+    applySearchFilter({ animateEntrance: animate });
+    window.scrollTo(0, 0);
+}
+
+function openPlaylistModal(pl = null) {
+    editingPlaylistId = pl ? pl.id : null;
+    selectedModalEmoji = pl ? (pl.emoji || '🎧') : '🎧';
+    plModalTitle.textContent = pl ? 'Изменить плейлист' : 'Новый плейлист';
+    plModalSaveBtn.textContent = pl ? 'Сохранить' : 'Создать';
+    plNameInput.value = pl ? pl.name : '';
+
+    plEmojiPicker.querySelectorAll('.emoji-btn').forEach((btn) => {
+        btn.classList.toggle('active', btn.dataset.emoji === selectedModalEmoji);
+    });
+
+    isPlModalOpen = true;
+    document.body.classList.add('settings-open');
+    plModalBackdrop.classList.add('open');
+    plModalBackdrop.setAttribute('aria-hidden', 'false');
+    haptic('light');
+    setTimeout(() => plNameInput.focus(), 200);
+    try { tg.BackButton?.show(); } catch (e) {}
+}
+
+function closePlaylistModal() {
+    if (!isPlModalOpen) return;
+    isPlModalOpen = false;
+    plModalBackdrop.classList.remove('open');
+    plModalBackdrop.setAttribute('aria-hidden', 'true');
+    if (!isSettingsOpen && !isAddTracksModalOpen) {
+        document.body.classList.remove('settings-open');
+    }
+    if (!isFullPlayerOpen && !isSettingsOpen && !isAddTracksModalOpen) {
+        try { tg.BackButton?.hide(); } catch (e) {}
+    }
+}
+
+plEmojiPicker.addEventListener('click', (e) => {
+    const btn = e.target.closest('.emoji-btn');
+    if (!btn) return;
+    selectedModalEmoji = btn.dataset.emoji;
+    plEmojiPicker.querySelectorAll('.emoji-btn').forEach((b) => {
+        b.classList.toggle('active', b === btn);
+    });
+    haptic('light');
+});
+
+plModalCloseBtn.addEventListener('click', closePlaylistModal);
+plModalBackdrop.addEventListener('click', (e) => {
+    if (e.target === plModalBackdrop) closePlaylistModal();
+});
+
+plModalSaveBtn.addEventListener('click', async () => {
+    const name = plNameInput.value.trim();
+    if (!name) {
+        plNameInput.focus();
+        return;
+    }
+    plModalSaveBtn.disabled = true;
+    try {
+        if (editingPlaylistId !== null) {
+            const res = await fetch(`/api/playlists/${editingPlaylistId}`, {
+                method: 'PATCH',
+                headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name, emoji: selectedModalEmoji }),
+            });
+            if (res.ok) {
+                const pl = userPlaylists.find(p => p.id === editingPlaylistId);
+                if (pl) {
+                    pl.name = name;
+                    pl.emoji = selectedModalEmoji;
+                }
+                closePlaylistModal();
+                renderPlaylistTabs();
+                haptic('medium');
+            }
+        } else {
+            const res = await fetch('/api/playlists', {
+                method: 'POST',
+                headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name, emoji: selectedModalEmoji }),
+            });
+            if (res.ok) {
+                const data = await res.json();
+                userPlaylists.push(data.playlist);
+                closePlaylistModal();
+                selectPlaylistTab(data.playlist.id, true);
+                haptic('medium');
+            } else {
+                const err = await res.json().catch(() => ({}));
+                if (err.error && tg.showAlert) tg.showAlert(err.error);
+            }
+        }
+    } catch (e) {
+    } finally {
+        plModalSaveBtn.disabled = false;
+    }
+});
+
+plEditBtn.addEventListener('click', () => {
+    const pl = getActiveCustomPlaylist();
+    if (pl) openPlaylistModal(pl);
+});
+
+plDeleteBtn.addEventListener('click', async () => {
+    const pl = getActiveCustomPlaylist();
+    if (!pl) return;
+    const doDelete = async () => {
+        try {
+            const res = await fetch(`/api/playlists/${pl.id}`, {
+                method: 'DELETE',
+                headers: authHeaders(),
+            });
+            if (res.ok) {
+                userPlaylists = userPlaylists.filter(p => p.id !== pl.id);
+                haptic('medium');
+                selectPlaylistTab('all', true);
+            }
+        } catch (e) {}
+    };
+    if (tg.showConfirm) {
+        tg.showConfirm(`Удалить плейлист «${pl.name}»? Треки останутся в «Все».`, (ok) => {
+            if (ok) doDelete();
+        });
+    } else if (confirm(`Удалить плейлист «${pl.name}»?`)) {
+        doDelete();
+    }
+});
+
+function renderPickerTracks() {
+    const q = addTracksSearch.value.trim().toLowerCase();
+    const list = allTracks.filter(t =>
+        (t.title && t.title.toLowerCase().includes(q)) ||
+        (t.performer && t.performer.toLowerCase().includes(q))
+    );
+
+    if (list.length === 0) {
+        addTracksList.innerHTML = `<div class="empty-state" style="padding:24px 12px;">Треки не найдены</div>`;
+        return;
+    }
+
+    addTracksList.innerHTML = '';
+    list.forEach((track) => {
+        const selected = pickerSelectedIds.has(track.file_id);
+        const row = document.createElement('div');
+        row.className = `picker-row ${selected ? 'selected' : ''}`;
+        row.innerHTML = `
+            <div class="picker-check">✓</div>
+            <div class="picker-info">
+                <div class="picker-title">${escapeHtml(track.title || track.name)}</div>
+                <div class="picker-artist">${escapeHtml(track.performer || 'Spotify')}</div>
+            </div>
+        `;
+        row.addEventListener('click', () => {
+            if (pickerSelectedIds.has(track.file_id)) {
+                pickerSelectedIds.delete(track.file_id);
+                row.classList.remove('selected');
+            } else {
+                pickerSelectedIds.add(track.file_id);
+                row.classList.add('selected');
+            }
+            haptic('light');
+        });
+        addTracksList.appendChild(row);
+    });
+}
+
+function openAddTracksModal() {
+    const pl = getActiveCustomPlaylist();
+    if (!pl) return;
+    pickerSelectedIds = new Set(pl.track_ids);
+    addTracksTitle.textContent = `${pl.emoji || '🎧'} ${pl.name}`;
+    addTracksSearch.value = '';
+    renderPickerTracks();
+
+    isAddTracksModalOpen = true;
+    document.body.classList.add('settings-open');
+    addTracksBackdrop.classList.add('open');
+    addTracksBackdrop.setAttribute('aria-hidden', 'false');
+    haptic('light');
+    try { tg.BackButton?.show(); } catch (e) {}
+}
+
+function closeAddTracksModal() {
+    if (!isAddTracksModalOpen) return;
+    isAddTracksModalOpen = false;
+    addTracksBackdrop.classList.remove('open');
+    addTracksBackdrop.setAttribute('aria-hidden', 'true');
+    if (!isSettingsOpen && !isPlModalOpen) {
+        document.body.classList.remove('settings-open');
+    }
+    if (!isFullPlayerOpen && !isSettingsOpen && !isPlModalOpen) {
+        try { tg.BackButton?.hide(); } catch (e) {}
+    }
+}
+
+plAddTracksBtn.addEventListener('click', openAddTracksModal);
+addTracksCloseBtn.addEventListener('click', closeAddTracksModal);
+addTracksBackdrop.addEventListener('click', (e) => {
+    if (e.target === addTracksBackdrop) closeAddTracksModal();
+});
+addTracksSearch.addEventListener('input', renderPickerTracks);
+
+addTracksSaveBtn.addEventListener('click', async () => {
+    const pl = getActiveCustomPlaylist();
+    if (!pl) return;
+    const prevSet = new Set(pl.track_ids);
+    const toAdd = [...pickerSelectedIds].filter(id => !prevSet.has(id));
+    const toRemove = [...prevSet].filter(id => !pickerSelectedIds.has(id));
+
+    addTracksSaveBtn.disabled = true;
+    try {
+        if (toAdd.length > 0) {
+            await fetch(`/api/playlists/${pl.id}/tracks`, {
+                method: 'POST',
+                headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+                body: JSON.stringify({ file_ids: toAdd }),
+            });
+        }
+        for (const fid of toRemove) {
+            await fetch(`/api/playlists/${pl.id}/tracks?file_id=${encodeURIComponent(fid)}`, {
+                method: 'DELETE',
+                headers: authHeaders(),
+            });
+        }
+        pl.track_ids = [...toAdd.reverse(), ...pl.track_ids.filter(id => pickerSelectedIds.has(id))];
+        closeAddTracksModal();
+        renderPlaylistTabs();
+        applySearchFilter();
+        haptic('medium');
+    } catch (e) {
+    } finally {
+        addTracksSaveBtn.disabled = false;
+    }
+});
+
 async function loadPlaylist() {
     if (!initData) {
         trackListEl.innerHTML = `<div class="empty-state">Откройте плейлист через кнопку в Telegram-боте.</div>`;
@@ -807,13 +1134,21 @@ async function loadPlaylist() {
     }
     renderSkeleton(6);
     try {
-        const res = await fetch('/api/playlist', { headers: authHeaders() });
-        if (!res.ok) {
-            throw new Error(`HTTP ${res.status}`);
+        const [resTracks, resPlaylists] = await Promise.all([
+            fetch('/api/playlist', { headers: authHeaders() }),
+            fetch('/api/playlists', { headers: authHeaders() }),
+        ]);
+        if (!resTracks.ok) {
+            throw new Error(`HTTP ${resTracks.status}`);
         }
-        const data = await res.json();
+        const data = await resTracks.json();
         allTracks = data.tracks || [];
-        filteredTracks = getSortedTracks(allTracks);
+        if (resPlaylists.ok) {
+            const plData = await resPlaylists.json();
+            userPlaylists = plData.playlists || [];
+        }
+        renderPlaylistTabs();
+        filteredTracks = getSortedTracks(getTracksForActivePlaylist());
         renderTracks({ animateEntrance: true });
         restoreLastTrackIfEnabled();
     } catch (err) {
@@ -823,10 +1158,16 @@ async function loadPlaylist() {
 
 function renderTracks(options = {}) {
     const { animateEntrance = false, highlightFileId = null } = options;
-    trackCountEl.textContent = `${allTracks.length} треков`;
+    const activePl = getActiveCustomPlaylist();
+    const sourceCount = activePl ? activePl.track_ids.length : allTracks.length;
+    trackCountEl.textContent = `${sourceCount} треков`;
 
     if (filteredTracks.length === 0) {
-        trackListEl.innerHTML = `<div class="empty-state">Плейлист пуст 🎧</div>`;
+        if (activePl && !searchInput.value.trim()) {
+            trackListEl.innerHTML = `<div class="empty-state">В плейлисте «${escapeHtml(activePl.name)}» пока пусто 🎧<br><span style="font-size:13px;opacity:0.75;">Нажми «➕ Добавить треки» сверху</span></div>`;
+        } else {
+            trackListEl.innerHTML = `<div class="empty-state">Плейлист пуст 🎧</div>`;
+        }
         return;
     }
 
@@ -882,6 +1223,8 @@ function renderTracks(options = {}) {
                 if (action === 'delete') deleteTrack(track.file_id);
                 return;
             }
+            playbackQueueIds = filteredTracks.map(t => t.file_id);
+            if (isShuffle) rebuildShuffleQueue();
             playTrackById(track.file_id);
             if (userSettings.autoOpenPlayer) {
                 openFullPlayer();
@@ -995,7 +1338,11 @@ try {
 
 try {
     tg.BackButton?.onClick(() => {
-        if (isSettingsOpen) {
+        if (isAddTracksModalOpen) {
+            closeAddTracksModal();
+        } else if (isPlModalOpen) {
+            closePlaylistModal();
+        } else if (isSettingsOpen) {
             closeSettings();
         } else if (isFullPlayerOpen) {
             closeFullPlayer();
@@ -1005,7 +1352,9 @@ try {
 
 document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') {
-        if (isSettingsOpen) closeSettings();
+        if (isAddTracksModalOpen) closeAddTracksModal();
+        else if (isPlModalOpen) closePlaylistModal();
+        else if (isSettingsOpen) closeSettings();
         else if (isFullPlayerOpen) closeFullPlayer();
     }
 });
@@ -1575,7 +1924,8 @@ function getSortedTracks(list) {
 
 function applySearchFilter(options = {}) {
     const q = searchInput.value.trim().toLowerCase();
-    const matched = allTracks.filter(t =>
+    const source = getTracksForActivePlaylist();
+    const matched = source.filter(t =>
         (t.title && t.title.toLowerCase().includes(q)) ||
         (t.performer && t.performer.toLowerCase().includes(q)) ||
         (t.name && t.name.toLowerCase().includes(q))
@@ -1598,8 +1948,11 @@ async function sendToChat(fileId) {
     } catch (e) {}
 }
 
-function commitServerDelete(fileId, keepalive = false) {
-    fetch(`/api/playlist?file_id=${encodeURIComponent(fileId)}`, {
+function commitServerDelete(fileId, playlistId = 'all', keepalive = false) {
+    const url = playlistId === 'all'
+        ? `/api/playlist?file_id=${encodeURIComponent(fileId)}`
+        : `/api/playlists/${playlistId}/tracks?file_id=${encodeURIComponent(fileId)}`;
+    fetch(url, {
         method: 'DELETE',
         headers: authHeaders(),
         keepalive
@@ -1609,14 +1962,16 @@ function commitServerDelete(fileId, keepalive = false) {
 function flushPendingDelete(keepalive = false) {
     if (!pendingDelete) return;
     clearTimeout(pendingDelete.timer);
-    const fileId = pendingDelete.track.file_id;
+    const { track, playlistId } = pendingDelete;
     pendingDelete = null;
     undoToast.classList.remove('visible');
-    commitServerDelete(fileId, keepalive);
+    commitServerDelete(track.file_id, playlistId, keepalive);
 }
 
-function showUndoToast(track) {
-    undoToastText.textContent = `Удалён: ${track.title || track.name}`;
+function showUndoToast(track, playlistName = null) {
+    undoToastText.textContent = playlistName
+        ? `Убран из «${playlistName}»`
+        : `Удалён: ${track.title || track.name}`;
     undoToast.classList.add('visible');
 }
 
@@ -1624,13 +1979,22 @@ undoDeleteBtn.addEventListener('click', () => {
     if (!pendingDelete) return;
     haptic('light');
     clearTimeout(pendingDelete.timer);
-    const { track, allIndex } = pendingDelete;
+    const { track, playlistId, index } = pendingDelete;
     pendingDelete = null;
     undoToast.classList.remove('visible');
 
-    const insertAt = Math.min(allIndex, allTracks.length);
-    allTracks.splice(insertAt, 0, track);
+    if (playlistId === 'all') {
+        const insertAt = Math.min(index, allTracks.length);
+        allTracks.splice(insertAt, 0, track);
+    } else {
+        const pl = userPlaylists.find(p => p.id === playlistId);
+        if (pl && !pl.track_ids.includes(track.file_id)) {
+            const insertAt = Math.min(index, pl.track_ids.length);
+            pl.track_ids.splice(insertAt, 0, track.file_id);
+        }
+    }
     if (isShuffle) rebuildShuffleQueue();
+    renderPlaylistTabs();
     applySearchFilter({ highlightFileId: track.file_id });
 });
 
@@ -1639,46 +2003,63 @@ window.addEventListener('pagehide', () => {
     flushPendingDelete(true);
 });
 
-function finalizeDeleteUI(fileId) {
-    const allIndex = allTracks.findIndex(t => t.file_id === fileId);
-    if (allIndex === -1) return;
-    const track = allTracks[allIndex];
+function finalizeDeleteUI(fileId, playlistId) {
+    const track = allTracks.find(t => t.file_id === fileId);
+    if (!track) return;
 
-    const wasCurrent = currentFileId === fileId;
-    allTracks.splice(allIndex, 1);
-    filteredTracks = filteredTracks.filter(t => t.file_id !== fileId);
-    shuffledIds = shuffledIds.filter(id => id !== fileId);
+    let removedIndex = 0;
+    let playlistName = null;
 
-    if (wasCurrent) {
-        if (filteredTracks.length > 0) {
-            playNextTrack();
-        } else {
-            audio.pause();
-            audio.src = '';
-            currentFileId = null;
-            closeFullPlayer();
-            playerBar.classList.remove('visible');
-            document.body.classList.remove('has-player');
+    if (playlistId === 'all') {
+        removedIndex = allTracks.findIndex(t => t.file_id === fileId);
+        if (removedIndex === -1) return;
+        allTracks.splice(removedIndex, 1);
+        userPlaylists.forEach((p) => {
+            p.track_ids = p.track_ids.filter(id => id !== fileId);
+        });
+        playbackQueueIds = playbackQueueIds.filter(id => id !== fileId);
+        shuffledIds = shuffledIds.filter(id => id !== fileId);
+
+        if (currentFileId === fileId) {
+            if (getBaseQueueIds().length > 0) {
+                playNextTrack();
+            } else {
+                audio.pause();
+                audio.src = '';
+                currentFileId = null;
+                closeFullPlayer();
+                playerBar.classList.remove('visible');
+                document.body.classList.remove('has-player');
+            }
         }
+    } else {
+        const pl = userPlaylists.find(p => p.id === playlistId);
+        if (!pl) return;
+        playlistName = pl.name;
+        removedIndex = pl.track_ids.indexOf(fileId);
+        if (removedIndex === -1) return;
+        pl.track_ids.splice(removedIndex, 1);
     }
-    renderTracks();
 
-    showUndoToast(track);
+    renderPlaylistTabs();
+    applySearchFilter();
+
+    showUndoToast(track, playlistName);
     const timer = setTimeout(() => {
         if (pendingDelete && pendingDelete.track.file_id === fileId) {
             pendingDelete = null;
             undoToast.classList.remove('visible');
-            commitServerDelete(fileId, false);
+            commitServerDelete(fileId, playlistId, false);
         }
     }, 5000);
 
-    pendingDelete = { track, allIndex, timer };
+    pendingDelete = { track, playlistId, index: removedIndex, timer };
 }
 
 function deleteTrack(fileId) {
-    // Если есть предыдущее отложенное удаление — сразу подтверждаем его на сервере
     flushPendingDelete(false);
 
+    const targetPlaylistId = activePlaylistId;
     const exists = allTracks.some(t => t.file_id === fileId);
     if (!exists) return;
 
@@ -1691,9 +2072,9 @@ function deleteTrack(fileId) {
         requestAnimationFrame(() => {
             itemEl.classList.add('removing');
         });
-        setTimeout(() => finalizeDeleteUI(fileId), 220);
+        setTimeout(() => finalizeDeleteUI(fileId, targetPlaylistId), 220);
     } else {
-        finalizeDeleteUI(fileId);
+        finalizeDeleteUI(fileId, targetPlaylistId);
     }
 }
 
