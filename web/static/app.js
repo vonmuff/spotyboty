@@ -2568,35 +2568,63 @@ function renderStatsContent(data) {
     });
 }
 
-async function loadAndRenderStats(period = statsPeriod) {
+const statsCache = new Map();
+let statsFetchSeq = 0;
+
+async function loadAndRenderStats(period = statsPeriod, forceRefresh = false) {
     statsPeriod = period;
+    const seq = ++statsFetchSeq;
+
     statsPeriodSegment.querySelectorAll('.seg-btn').forEach((btn) => {
         btn.classList.toggle('active', btn.dataset.period === period);
     });
-    statsBody.innerHTML = `<div class="stats-empty">Загрузка статистики...</div>`;
+
+    const cached = !forceRefresh ? statsCache.get(period) : null;
+    if (cached && (Date.now() - cached.ts) < 30000) {
+        statsBody.classList.remove('loading');
+        renderStatsContent(cached.data);
+        return;
+    }
+
+    const hasContent = statsBody.children.length > 0 && !statsBody.querySelector('.stats-empty');
+    if (hasContent) {
+        // Не схлопываем высоту шторки при переключении периода — просто мягко приглушаем
+        statsBody.classList.add('loading');
+    } else {
+        statsBody.innerHTML = `<div class="stats-empty">Загрузка статистики...</div>`;
+    }
+
     try {
         const res = await fetch(`/api/stats?period=${encodeURIComponent(period)}`, {
             headers: authHeaders(),
         });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = await res.json();
-        if (period === statsPeriod) {
+        statsCache.set(period, { data, ts: Date.now() });
+        if (seq === statsFetchSeq && period === statsPeriod) {
             renderStatsContent(data);
+            statsBody.classList.remove('loading');
         }
     } catch (e) {
-        statsBody.innerHTML = `<div class="stats-empty">Не удалось загрузить статистику</div>`;
+        if (seq === statsFetchSeq) {
+            statsBody.classList.remove('loading');
+            if (!hasContent) {
+                statsBody.innerHTML = `<div class="stats-empty">Не удалось загрузить статистику</div>`;
+            }
+        }
     }
 }
 
 function openStats() {
     if (isStatsOpen) return;
     isStatsOpen = true;
+    statsCache.clear();
     document.body.classList.add('settings-open');
     statsBackdrop.classList.add('open');
     statsBackdrop.setAttribute('aria-hidden', 'false');
     haptic('light');
     try { tg.BackButton?.show(); } catch (e) {}
-    loadAndRenderStats(statsPeriod);
+    loadAndRenderStats(statsPeriod, true);
 }
 
 function closeStats() {

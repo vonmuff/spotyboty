@@ -2344,6 +2344,13 @@ body.settings-open {
     display: flex;
     flex-direction: column;
     gap: 16px;
+    min-height: 260px;
+    transition: opacity 0.18s ease;
+}
+
+.stats-body.loading {
+    opacity: 0.45;
+    pointer-events: none;
 }
 
 .stats-hero {
