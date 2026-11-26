@@ -3002,16 +3002,16 @@ function smoothScrollToY(targetY) {
         return;
     }
 
-    // Мягкая адаптивная длительность (420–780 мс) + S-кривая easeInOutCubic без резкого рывка на старте
-    const duration = Math.min(780, Math.max(420, Math.abs(distance) * 0.45));
+    // Ультраплавная длительность (620–1150 мс) + мягкая S-кривая easeInOutQuint
+    const duration = Math.min(1150, Math.max(620, Math.abs(distance) * 0.65));
     const startTime = performance.now();
 
     function step(now) {
         const elapsed = now - startTime;
         const progress = Math.min(1, elapsed / duration);
         const eased = progress < 0.5
-            ? 4 * progress * progress * progress
-            : 1 - Math.pow(-2 * progress + 2, 3) / 2;
+            ? 16 * Math.pow(progress, 5)
+            : 1 - Math.pow(-2 * progress + 2, 5) / 2;
         window.scrollTo(0, startY + distance * eased);
 
         if (progress < 1) {
