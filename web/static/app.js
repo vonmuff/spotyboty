@@ -1332,32 +1332,49 @@ let wheelLocked = false;
 let wheelLockedAt = 0;
 let wheelResetTimer = null;
 
+function getWheelCloseThreshold() {
+    return Math.max(180, Math.round(window.innerHeight * 0.26));
+}
+
 function renderWheelPullFrame() {
     wheelPullRafId = null;
     if (!isFullPlayerOpen) {
         wheelVisualY = 0;
         return;
     }
-    const targetY = Math.min(220, wheelAccumY * 0.46);
-    wheelVisualY += (targetY - wheelVisualY) * 0.28;
+    const maxPull = Math.round(window.innerHeight * 0.72);
+    const targetY = Math.min(maxPull, wheelAccumY * 0.28);
+    wheelVisualY += (targetY - wheelVisualY) * 0.24;
     if (Math.abs(targetY - wheelVisualY) < 0.5) {
         wheelVisualY = targetY;
     }
     fullPlayer.classList.add('dragging');
     fullPlayer.style.transform = `translate3d(0, ${wheelVisualY.toFixed(1)}px, 0)`;
 
-    if (wheelVisualY >= 112) {
-        wheelAccumY = 0;
-        wheelVisualY = 0;
+    if (Math.abs(targetY - wheelVisualY) >= 0.5) {
+        wheelPullRafId = requestAnimationFrame(renderWheelPullFrame);
+    }
+}
+
+function finishWheelVerticalPull() {
+    if (wheelPullRafId !== null) {
+        cancelAnimationFrame(wheelPullRafId);
+        wheelPullRafId = null;
+    }
+    const pulledY = wheelVisualY;
+    wheelAccumY = 0;
+    wheelVisualY = 0;
+
+    if (!isFullPlayerOpen) return;
+
+    if (pulledY >= getWheelCloseThreshold()) {
         wheelLocked = true;
         wheelLockedAt = Date.now();
         haptic('light');
         closeFullPlayer();
-        return;
-    }
-
-    if (Math.abs(targetY - wheelVisualY) >= 0.5) {
-        wheelPullRafId = requestAnimationFrame(renderWheelPullFrame);
+    } else {
+        fullPlayer.classList.remove('dragging');
+        fullPlayer.style.transform = '';
     }
 }
 
@@ -1384,8 +1401,9 @@ window.addEventListener('wheel', (e) => {
     const absX = Math.abs(e.deltaX);
     const absY = Math.abs(e.deltaY);
 
-    // 1) Свайп двумя пальцами вниз в полноэкранном плеере -> плавно свернуть плеер
-    if (isFullPlayerOpen && absY >= 4 && absY > absX * 1.35) {
+    // 1) Свайп двумя пальцами вниз в полноэкранном плеере -> физически тянем шторку вниз,
+    // закрываем только когда пользователь реально протянул плеер вниз и отпустил (или дотянул > 55% экрана)
+    if (isFullPlayerOpen && absY >= 2 && absY > absX * 1.35) {
         if (e.cancelable) e.preventDefault();
 
         if (wheelResetTimer) clearTimeout(wheelResetTimer);
@@ -1393,8 +1411,8 @@ window.addEventListener('wheel', (e) => {
             wheelAccumX = 0;
             wheelLocked = false;
             wheelResetTimer = null;
-            resetWheelVerticalPull();
-        }, 210);
+            finishWheelVerticalPull();
+        }, 170);
 
         if (wheelLocked) {
             if (Date.now() - wheelLockedAt < 560) return;
@@ -1403,14 +1421,26 @@ window.addEventListener('wheel', (e) => {
             wheelVisualY = 0;
         }
 
+        // Ограничиваем одиночный скачок deltaY (на тачпадах бывают всплески по 120-200px за тик)
+        const stepY = Math.max(-45, Math.min(45, e.deltaY));
+        const maxAccum = Math.round((window.innerHeight * 0.72) / 0.28);
+
         // На тачпаде с natural scrolling движение двух пальцев вниз даёт deltaY < 0
-        if (e.deltaY < 0) {
-            wheelAccumY = Math.min(480, wheelAccumY + (-e.deltaY));
+        if (stepY < 0) {
+            wheelAccumY = Math.min(maxAccum, wheelAccumY + (-stepY));
             if (wheelPullRafId === null) {
                 wheelPullRafId = requestAnimationFrame(renderWheelPullFrame);
             }
+            // Если пользователь уже протянул плеер больше чем на половину экрана — закрываем сразу
+            if (wheelVisualY >= window.innerHeight * 0.52) {
+                if (wheelResetTimer) {
+                    clearTimeout(wheelResetTimer);
+                    wheelResetTimer = null;
+                }
+                finishWheelVerticalPull();
+            }
         } else if (wheelAccumY > 0) {
-            wheelAccumY = Math.max(0, wheelAccumY - e.deltaY);
+            wheelAccumY = Math.max(0, wheelAccumY - stepY);
             if (wheelPullRafId === null) {
                 wheelPullRafId = requestAnimationFrame(renderWheelPullFrame);
             }
