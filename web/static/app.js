@@ -1323,79 +1323,12 @@ function endTabSwipe() {
 document.addEventListener('touchend', endTabSwipe);
 document.addEventListener('touchcancel', endTabSwipe);
 
-// ===== Two-finger Touchpad Swipes (PC: Playlists, Fullscreen Track Skip & Swipe-Down to Close) =====
+// ===== Two-finger Touchpad Swipes (PC: Playlists, Fullscreen Track Skip & Open/Close Player) =====
 let wheelAccumX = 0;
 let wheelAccumY = 0;
-let wheelVisualY = 0;
-let wheelPullRafId = null;
 let wheelLocked = false;
 let wheelLockedAt = 0;
 let wheelResetTimer = null;
-
-function getWheelCloseThreshold() {
-    return Math.max(85, Math.round(window.innerHeight * 0.13));
-}
-
-function getWheelTargetY() {
-    const maxPull = Math.round(window.innerHeight * 0.78);
-    return Math.min(maxPull, wheelAccumY * 0.92);
-}
-
-function renderWheelPullFrame() {
-    wheelPullRafId = null;
-    if (!isFullPlayerOpen) {
-        wheelVisualY = 0;
-        return;
-    }
-    const targetY = getWheelTargetY();
-    wheelVisualY += (targetY - wheelVisualY) * 0.45;
-    if (Math.abs(targetY - wheelVisualY) < 0.5) {
-        wheelVisualY = targetY;
-    }
-    fullPlayer.classList.add('dragging');
-    fullPlayer.style.transform = `translate3d(0, ${wheelVisualY.toFixed(1)}px, 0)`;
-
-    if (Math.abs(targetY - wheelVisualY) >= 0.5) {
-        wheelPullRafId = requestAnimationFrame(renderWheelPullFrame);
-    }
-}
-
-function finishWheelVerticalPull() {
-    if (wheelPullRafId !== null) {
-        cancelAnimationFrame(wheelPullRafId);
-        wheelPullRafId = null;
-    }
-    const pulledY = Math.max(wheelVisualY, getWheelTargetY());
-    wheelAccumY = 0;
-    wheelVisualY = 0;
-
-    if (!isFullPlayerOpen) return;
-
-    if (pulledY >= getWheelCloseThreshold()) {
-        wheelLocked = true;
-        wheelLockedAt = Date.now();
-        haptic('light');
-        closeFullPlayer();
-    } else {
-        fullPlayer.classList.remove('dragging');
-        fullPlayer.style.transform = '';
-    }
-}
-
-function resetWheelVerticalPull() {
-    if (wheelPullRafId !== null) {
-        cancelAnimationFrame(wheelPullRafId);
-        wheelPullRafId = null;
-    }
-    if (wheelAccumY !== 0 || wheelVisualY !== 0) {
-        wheelAccumY = 0;
-        wheelVisualY = 0;
-        if (isFullPlayerOpen) {
-            fullPlayer.classList.remove('dragging');
-            fullPlayer.style.transform = '';
-        }
-    }
-}
 
 window.addEventListener('wheel', (e) => {
     if (e.ctrlKey) return;
@@ -1405,47 +1338,38 @@ window.addEventListener('wheel', (e) => {
     const absX = Math.abs(e.deltaX);
     const absY = Math.abs(e.deltaY);
 
-    // 1) Свайп двумя пальцами вниз в полноэкранном плеере -> физически тянем шторку вниз,
-    // закрываем только когда пользователь реально протянул плеер вниз и отпустил (или дотянул > 55% экрана)
-    if (isFullPlayerOpen && absY >= 2 && absY > absX * 1.35) {
+    // 1) Вертикальный свайп двумя пальцами:
+    //    - в полноэкранном плеере (вверх или вниз) -> плавно свернуть плеер
+    //    - на мини-плеере внизу (вверх или вниз) -> плавно развернуть плеер
+    const onMiniPlayer = !isFullPlayerOpen && Boolean(e.target.closest('.player-bar')) && Boolean(currentFileId);
+    if ((isFullPlayerOpen || onMiniPlayer) && absY >= 4 && absY > absX * 1.35) {
         if (e.cancelable) e.preventDefault();
 
         if (wheelResetTimer) clearTimeout(wheelResetTimer);
         wheelResetTimer = setTimeout(() => {
             wheelAccumX = 0;
+            wheelAccumY = 0;
             wheelLocked = false;
             wheelResetTimer = null;
-            finishWheelVerticalPull();
-        }, 170);
+        }, 200);
 
         if (wheelLocked) {
             if (Date.now() - wheelLockedAt < 560) return;
             wheelLocked = false;
             wheelAccumY = 0;
-            wheelVisualY = 0;
         }
 
-        const stepY = Math.max(-160, Math.min(160, e.deltaY));
-        const maxAccum = Math.round((window.innerHeight * 0.78) / 0.92);
+        wheelAccumY += e.deltaY;
+        if (Math.abs(wheelAccumY) < 85) return;
 
-        // На тачпаде с natural scrolling движение двух пальцев вниз даёт deltaY < 0
-        if (stepY < 0) {
-            wheelAccumY = Math.min(maxAccum, wheelAccumY + (-stepY));
-            if (wheelPullRafId === null) {
-                wheelPullRafId = requestAnimationFrame(renderWheelPullFrame);
-            }
-            if (getWheelTargetY() >= window.innerHeight * 0.42) {
-                if (wheelResetTimer) {
-                    clearTimeout(wheelResetTimer);
-                    wheelResetTimer = null;
-                }
-                finishWheelVerticalPull();
-            }
-        } else if (wheelAccumY > 0) {
-            wheelAccumY = Math.max(0, wheelAccumY - stepY);
-            if (wheelPullRafId === null) {
-                wheelPullRafId = requestAnimationFrame(renderWheelPullFrame);
-            }
+        wheelAccumY = 0;
+        wheelLocked = true;
+        wheelLockedAt = Date.now();
+        haptic('light');
+        if (isFullPlayerOpen) {
+            closeFullPlayer();
+        } else {
+            openFullPlayer();
         }
         return;
     }
@@ -1464,9 +1388,9 @@ window.addEventListener('wheel', (e) => {
     if (wheelResetTimer) clearTimeout(wheelResetTimer);
     wheelResetTimer = setTimeout(() => {
         wheelAccumX = 0;
+        wheelAccumY = 0;
         wheelLocked = false;
         wheelResetTimer = null;
-        resetWheelVerticalPull();
     }, 180);
 
     if (wheelLocked) {
