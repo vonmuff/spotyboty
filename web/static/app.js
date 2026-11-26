@@ -283,6 +283,7 @@ const undoDeleteBtn = document.getElementById('undoDeleteBtn');
 const settingsBtn = document.getElementById('settingsBtn');
 const statsBtn = document.getElementById('statsBtn');
 const statsBackdrop = document.getElementById('statsBackdrop');
+const statsSheet = document.getElementById('statsSheet');
 const statsCloseBtn = document.getElementById('statsCloseBtn');
 const statsPeriodSegment = document.getElementById('statsPeriodSegment');
 const statsBody = document.getElementById('statsBody');
@@ -2619,6 +2620,8 @@ function openStats() {
     if (isStatsOpen) return;
     isStatsOpen = true;
     statsCache.clear();
+    statsSheet.style.transform = '';
+    statsSheet.classList.remove('dragging');
     document.body.classList.add('settings-open');
     statsBackdrop.classList.add('open');
     statsBackdrop.setAttribute('aria-hidden', 'false');
@@ -2630,6 +2633,8 @@ function openStats() {
 function closeStats() {
     if (!isStatsOpen) return;
     isStatsOpen = false;
+    statsSheet.style.transform = '';
+    statsSheet.classList.remove('dragging');
     statsBackdrop.classList.remove('open');
     statsBackdrop.setAttribute('aria-hidden', 'true');
     if (!isSettingsOpen && !isPlModalOpen && !isAddTracksModalOpen && !isPlActionsOpen && !isTrackPlaylistsModalOpen && !isTrackActionsOpen) {
@@ -2651,6 +2656,76 @@ statsPeriodSegment.addEventListener('click', (e) => {
     haptic('light');
     loadAndRenderStats(btn.dataset.period || 'all');
 });
+
+// 60fps swipe-down gesture to close stats sheet (mobile touch + PC touchpad at top)
+let statsSwipeStartY = 0;
+let statsSwipeStartTime = 0;
+let statsSwipeDeltaY = 0;
+let statsSwipeActive = false;
+let statsSwipeDragging = false;
+let statsSwipeRafId = null;
+
+function renderStatsSwipeFrame() {
+    statsSwipeRafId = null;
+    if (!statsSwipeDragging) return;
+    const dy = Math.max(0, statsSwipeDeltaY);
+    statsSheet.style.transform = `translate3d(0, ${dy}px, 0)`;
+}
+
+statsSheet.addEventListener('touchstart', (e) => {
+    if (!isStatsOpen || e.touches.length !== 1) return;
+    if (statsSheet.scrollTop > 0) return;
+    statsSwipeStartY = e.touches[0].clientY;
+    statsSwipeStartTime = Date.now();
+    statsSwipeDeltaY = 0;
+    statsSwipeActive = true;
+    statsSwipeDragging = false;
+}, { passive: true });
+
+statsSheet.addEventListener('touchmove', (e) => {
+    if (!statsSwipeActive) return;
+    const dy = e.touches[0].clientY - statsSwipeStartY;
+    if (!statsSwipeDragging) {
+        if (dy < 8) {
+            if (dy < -8) statsSwipeActive = false;
+            return;
+        }
+        if (statsSheet.scrollTop > 0) {
+            statsSwipeActive = false;
+            return;
+        }
+        statsSwipeDragging = true;
+        statsSheet.classList.add('dragging');
+    }
+    if (e.cancelable) e.preventDefault();
+    statsSwipeDeltaY = Math.max(0, dy);
+    if (statsSwipeRafId === null) {
+        statsSwipeRafId = requestAnimationFrame(renderStatsSwipeFrame);
+    }
+}, { passive: false });
+
+function endStatsSwipe() {
+    if (!statsSwipeActive) return;
+    statsSwipeActive = false;
+    if (statsSwipeRafId !== null) {
+        cancelAnimationFrame(statsSwipeRafId);
+        statsSwipeRafId = null;
+    }
+    if (!statsSwipeDragging) return;
+    statsSwipeDragging = false;
+    statsSheet.classList.remove('dragging');
+    const elapsed = Math.max(1, Date.now() - statsSwipeStartTime);
+    const vy = statsSwipeDeltaY / elapsed;
+    if (statsSwipeDeltaY > 85 || vy > 0.5) {
+        haptic('light');
+        closeStats();
+    } else {
+        statsSheet.style.transform = '';
+    }
+}
+
+statsSheet.addEventListener('touchend', endStatsSwipe);
+statsSheet.addEventListener('touchcancel', endStatsSwipe);
 
 function hideLayerInstantly(el) {
     el.style.transition = 'none';
