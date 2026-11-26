@@ -2572,6 +2572,16 @@ function renderStatsContent(data) {
 const statsCache = new Map();
 let statsFetchSeq = 0;
 
+async function fetchStatsPeriod(period) {
+    const res = await fetch(`/api/stats?period=${encodeURIComponent(period)}`, {
+        headers: authHeaders(),
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    statsCache.set(period, { data, ts: Date.now() });
+    return data;
+}
+
 async function loadAndRenderStats(period = statsPeriod, forceRefresh = false) {
     statsPeriod = period;
     const seq = ++statsFetchSeq;
@@ -2588,25 +2598,25 @@ async function loadAndRenderStats(period = statsPeriod, forceRefresh = false) {
     }
 
     const hasContent = statsBody.children.length > 0 && !statsBody.querySelector('.stats-empty');
+    let loadingDelayTimer = null;
     if (hasContent) {
-        // Не схлопываем высоту шторки при переключении периода — просто мягко приглушаем
-        statsBody.classList.add('loading');
+        // Показываем приглушение только если запрос реально долгий (>180 мс), чтобы не было «блика»
+        loadingDelayTimer = setTimeout(() => {
+            if (seq === statsFetchSeq) statsBody.classList.add('loading');
+        }, 180);
     } else {
         statsBody.innerHTML = `<div class="stats-empty">Загрузка статистики...</div>`;
     }
 
     try {
-        const res = await fetch(`/api/stats?period=${encodeURIComponent(period)}`, {
-            headers: authHeaders(),
-        });
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const data = await res.json();
-        statsCache.set(period, { data, ts: Date.now() });
+        const data = await fetchStatsPeriod(period);
+        if (loadingDelayTimer) clearTimeout(loadingDelayTimer);
         if (seq === statsFetchSeq && period === statsPeriod) {
             renderStatsContent(data);
             statsBody.classList.remove('loading');
         }
     } catch (e) {
+        if (loadingDelayTimer) clearTimeout(loadingDelayTimer);
         if (seq === statsFetchSeq) {
             statsBody.classList.remove('loading');
             if (!hasContent) {
@@ -2628,6 +2638,12 @@ function openStats() {
     haptic('light');
     try { tg.BackButton?.show(); } catch (e) {}
     loadAndRenderStats(statsPeriod, true);
+    // Фоном сразу прогреваем остальные 2 периода, чтобы переключение вкладок было мгновенным (0 мс) без блика
+    ['all', '30d', '7d'].forEach((p) => {
+        if (p !== statsPeriod) {
+            fetchStatsPeriod(p).catch(() => {});
+        }
+    });
 }
 
 function closeStats() {
