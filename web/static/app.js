@@ -3203,6 +3203,51 @@ function crossfadeFullPlayerCover(coverUrl, instantCover = false) {
 }
 
 playerTrackTrigger.addEventListener('click', openFullPlayer);
+
+// Свайп вверх по мини-плееру на телефоне -> открыть полноэкранный плеер
+let miniSwipeStartX = 0;
+let miniSwipeStartY = 0;
+let miniSwipeStartTime = 0;
+let miniSwipeDeltaY = 0;
+let miniSwipeActive = false;
+
+playerBar.addEventListener('touchstart', (e) => {
+    if (isFullPlayerOpen || !currentFileId || e.touches.length !== 1) return;
+    if (e.target.closest('.seek-wrapper, button, input')) return;
+    miniSwipeStartX = e.touches[0].clientX;
+    miniSwipeStartY = e.touches[0].clientY;
+    miniSwipeStartTime = Date.now();
+    miniSwipeDeltaY = 0;
+    miniSwipeActive = true;
+}, { passive: true });
+
+playerBar.addEventListener('touchmove', (e) => {
+    if (!miniSwipeActive) return;
+    const dx = e.touches[0].clientX - miniSwipeStartX;
+    const dy = e.touches[0].clientY - miniSwipeStartY;
+    if (Math.abs(dx) > Math.abs(dy) * 1.2 && Math.abs(dx) > 10) {
+        miniSwipeActive = false;
+        return;
+    }
+    if (dy < -8) {
+        if (e.cancelable) e.preventDefault();
+        miniSwipeDeltaY = -dy;
+    }
+}, { passive: false });
+
+function endMiniPlayerSwipe() {
+    if (!miniSwipeActive) return;
+    miniSwipeActive = false;
+    const elapsed = Math.max(1, Date.now() - miniSwipeStartTime);
+    const vy = miniSwipeDeltaY / elapsed;
+    if (miniSwipeDeltaY > 36 || (miniSwipeDeltaY > 18 && vy > 0.35)) {
+        openFullPlayer();
+    }
+    miniSwipeDeltaY = 0;
+}
+
+playerBar.addEventListener('touchend', endMiniPlayerSwipe);
+playerBar.addEventListener('touchcancel', endMiniPlayerSwipe);
 fpCollapseBtn.addEventListener('click', () => {
     haptic('light');
     closeFullPlayer();
