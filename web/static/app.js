@@ -1333,12 +1333,12 @@ let wheelLockedAt = 0;
 let wheelResetTimer = null;
 
 function getWheelCloseThreshold() {
-    return Math.max(105, Math.round(window.innerHeight * 0.16));
+    return Math.max(85, Math.round(window.innerHeight * 0.13));
 }
 
 function getWheelTargetY() {
-    const maxPull = Math.round(window.innerHeight * 0.72);
-    return Math.min(maxPull, wheelAccumY * 0.52);
+    const maxPull = Math.round(window.innerHeight * 0.78);
+    return Math.min(maxPull, wheelAccumY * 0.92);
 }
 
 function renderWheelPullFrame() {
@@ -1348,7 +1348,7 @@ function renderWheelPullFrame() {
         return;
     }
     const targetY = getWheelTargetY();
-    wheelVisualY += (targetY - wheelVisualY) * 0.34;
+    wheelVisualY += (targetY - wheelVisualY) * 0.45;
     if (Math.abs(targetY - wheelVisualY) < 0.5) {
         wheelVisualY = targetY;
     }
@@ -1425,8 +1425,8 @@ window.addEventListener('wheel', (e) => {
             wheelVisualY = 0;
         }
 
-        const stepY = Math.max(-85, Math.min(85, e.deltaY));
-        const maxAccum = Math.round((window.innerHeight * 0.72) / 0.52);
+        const stepY = Math.max(-160, Math.min(160, e.deltaY));
+        const maxAccum = Math.round((window.innerHeight * 0.78) / 0.92);
 
         // На тачпаде с natural scrolling движение двух пальцев вниз даёт deltaY < 0
         if (stepY < 0) {
