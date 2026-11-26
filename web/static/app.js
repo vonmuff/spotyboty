@@ -913,7 +913,7 @@ function stopMorphLoader() {
     }
 }
 
-function startMorphLoader(pathEl) {
+function startMorphLoader(pathEl, morphDuration = 640) {
     stopMorphLoader();
     if (!pathEl) return;
 
@@ -944,7 +944,6 @@ function startMorphLoader(pathEl) {
         return arr;
     });
 
-    const morphDuration = 900; // мс на перетекание одной фигуры в следующую
     const startTime = performance.now();
 
     const frame = (now) => {
@@ -963,7 +962,7 @@ function startMorphLoader(pathEl) {
             ? 4 * rawT * rawT * rawT
             : 1 - Math.pow(-2 * rawT + 2, 3) / 2;
 
-        const rot = (elapsed * 0.0011) % TWO_PI;
+        const rot = (elapsed * 0.0014) % TWO_PI;
         const shapeA = precomputed[idxA];
         const shapeB = precomputed[idxB];
 
@@ -1908,12 +1907,33 @@ addTracksSaveBtn.addEventListener('click', async () => {
     }
 });
 
+const appSplashEl = document.getElementById('appSplash');
+const splashMorphPath = document.getElementById('splashMorphPath');
+const splashStartedAt = performance.now();
+if (splashMorphPath && !userSettings.reducedMotion) {
+    startMorphLoader(splashMorphPath, 620);
+}
+
+function dismissAppSplash() {
+    if (!appSplashEl || appSplashEl.dataset.dismissed === '1') return;
+    appSplashEl.dataset.dismissed = '1';
+    const minDuration = userSettings.reducedMotion ? 0 : 1250;
+    const remaining = Math.max(0, minDuration - (performance.now() - splashStartedAt));
+    setTimeout(() => {
+        appSplashEl.classList.add('hiding');
+        setTimeout(() => {
+            stopMorphLoader();
+            if (appSplashEl.parentNode) appSplashEl.parentNode.removeChild(appSplashEl);
+        }, 380);
+    }, remaining);
+}
+
 async function loadPlaylist() {
     if (!initData) {
         trackListEl.innerHTML = `<div class="empty-state">Откройте плейлист через кнопку в Telegram-боте.</div>`;
+        dismissAppSplash();
         return;
     }
-    renderSkeleton(6);
     try {
         const [resTracks, resPlaylists] = await Promise.all([
             fetch('/api/playlist', { headers: authHeaders() }),
@@ -1934,6 +1954,8 @@ async function loadPlaylist() {
         restoreLastTrackIfEnabled();
     } catch (err) {
         trackListEl.innerHTML = `<div class="empty-state">Ошибка загрузки плейлиста</div>`;
+    } finally {
+        dismissAppSplash();
     }
 }
 
