@@ -10,7 +10,7 @@ from typing import Optional
 from urllib.parse import urlencode
 
 import aiosqlite
-from aiohttp import web, ClientSession
+from aiohttp import web, ClientSession, TCPConnector
 from aiogram import Bot
 from aiogram.utils.web_app import safe_parse_webapp_init_data
 from mutagen.mp3 import MP3
@@ -27,11 +27,28 @@ os.makedirs(COVERS_DIR, exist_ok=True)
 
 METADATA_SEMAPHORE = asyncio.Semaphore(2)
 _resolving_tasks: set[str] = set()
-MEDIA_TOKEN_TTL = 12 * 3600
+MEDIA_TOKEN_BUCKET = 6 * 3600  # Квантование exp по 6-часовым окнам для попадания в кэш браузера
 
 FILE_PATH_CACHE_TTL = 1800  # 30 минут
 FILE_PATH_CACHE_MAX_SIZE = 1000
 _file_path_cache: dict[str, tuple[str, float]] = {}
+
+ROWID_CACHE_MAX_SIZE = 2000
+_rowid_to_file_id_cache: dict[int, str] = {}
+
+
+def _get_http_session() -> ClientSession:
+    global http_session
+    if http_session is None or http_session.closed:
+        connector = TCPConnector(limit=32, keepalive_timeout=60, ttl_dns_cache=300)
+        http_session = ClientSession(connector=connector)
+    return http_session
+
+
+def _cache_rowid_file_id(rowid: int, file_id: str) -> None:
+    if len(_rowid_to_file_id_cache) >= ROWID_CACHE_MAX_SIZE and rowid not in _rowid_to_file_id_cache:
+        _rowid_to_file_id_cache.pop(next(iter(_rowid_to_file_id_cache)))
+    _rowid_to_file_id_cache[rowid] = file_id
 
 MAX_USER_PLAYLISTS = 15
 MAX_PLAYLIST_NAME_LEN = 32
@@ -70,9 +87,9 @@ def _get_authenticated_user_id(request: web.Request) -> Optional[int]:
 
 
 def sign_media_token(item_id: str, exp: Optional[int] = None) -> tuple[int, str]:
-    """Генерирует временную HMAC-подпись для безопасного доступа к /api/stream и /api/cover без раскрытия file_id."""
+    """Генерирует временную HMAC-подпись для /api/stream и /api/cover (exp квантуется по 6ч окнам для кэша браузера)."""
     if exp is None:
-        exp = int(time.time()) + MEDIA_TOKEN_TTL
+        exp = ((int(time.time()) // MEDIA_TOKEN_BUCKET) + 2) * MEDIA_TOKEN_BUCKET
     payload = f"{item_id}:{exp}".encode("utf-8")
     sig = hmac.new(MEDIA_SIGN_KEY.encode("utf-8"), payload, hashlib.sha256).hexdigest()[:32]
     return exp, sig
@@ -92,7 +109,7 @@ def verify_media_token(item_id: Optional[str], exp_str: Optional[str], sig: Opti
 
 
 async def _resolve_file_id_from_request(request: web.Request) -> Optional[str]:
-    """Проверяет подписанный непрозрачный id и возвращает file_id из SQLite."""
+    """Проверяет подписанный непрозрачный id и возвращает file_id (с in-memory кэшем)."""
     item_id = request.query.get("id")
     if not verify_media_token(item_id, request.query.get("exp"), request.query.get("sig")):
         return None
@@ -100,10 +117,16 @@ async def _resolve_file_id_from_request(request: web.Request) -> Optional[str]:
         rowid = int(item_id)
     except ValueError:
         return None
+    cached_fid = _rowid_to_file_id_cache.get(rowid)
+    if cached_fid is not None:
+        return cached_fid
     async with aiosqlite.connect(DB_PATH) as conn:
         async with conn.execute("SELECT file_id FROM playlist WHERE rowid = ?", (rowid,)) as cur:
             row = await cur.fetchone()
-            return row[0] if row else None
+            if row:
+                _cache_rowid_file_id(rowid, row[0])
+                return row[0]
+            return None
 
 
 def get_cover_cache_path(file_id: str) -> str:
@@ -259,6 +282,7 @@ async def get_playlist(request):
         if not performer:
             performer = "Spotify"
 
+        _cache_rowid_file_id(row_id, file_id)
         item_id = str(row_id)
         exp, sig = sign_media_token(item_id)
         signed_query = urlencode({"id": item_id, "exp": exp, "sig": sig})
@@ -286,6 +310,13 @@ async def delete_track(request):
         return web.json_response({'error': 'No file_id'}, status=400)
 
     async with aiosqlite.connect(DB_PATH) as conn:
+        async with conn.execute(
+            "SELECT rowid FROM playlist WHERE user_id = ? AND file_id = ?",
+            (user_id, file_id),
+        ) as cur:
+            row = await cur.fetchone()
+            if row:
+                _rowid_to_file_id_cache.pop(row[0], None)
         await conn.execute("DELETE FROM playlist WHERE user_id = ? AND file_id = ?", (user_id, file_id))
         await conn.execute(
             """
@@ -641,7 +672,6 @@ async def remove_track_from_user_playlist(request):
 @routes.get('/api/stream')
 async def stream_audio(request):
     """Проксирует аудиопоток с поддержкой Range-запросов и кэшированием Telegram file_path"""
-    global http_session
     file_id = await _resolve_file_id_from_request(request)
     if not file_id:
         return web.Response(status=403, text="Forbidden")
@@ -650,14 +680,13 @@ async def stream_audio(request):
         if 'Range' in request.headers:
             headers['Range'] = request.headers['Range']
 
-        if http_session is None or http_session.closed:
-            http_session = ClientSession()
+        session = _get_http_session()
 
         for attempt in range(2):
             file_path = await get_cached_file_path(file_id, force_refresh=(attempt > 0))
             direct_url = f"https://api.telegram.org/file/bot{bot_instance.token}/{file_path}"
 
-            async with http_session.get(direct_url, headers=headers) as resp:
+            async with session.get(direct_url, headers=headers) as resp:
                 if resp.status == 404 and attempt == 0:
                     _file_path_cache.pop(file_id, None)
                     continue
@@ -680,6 +709,7 @@ async def stream_audio(request):
                     headers={
                         'Content-Type': content_type,
                         'Accept-Ranges': 'bytes',
+                        'Cache-Control': 'private, max-age=1800',
                     }
                 )
                 if 'Content-Range' in resp.headers:
@@ -688,7 +718,7 @@ async def stream_audio(request):
                     response.headers['Content-Length'] = resp.headers['Content-Length']
 
                 await response.prepare(request)
-                async for chunk in resp.content.iter_chunked(65536):
+                async for chunk in resp.content.iter_chunked(16384):
                     await response.write(chunk)
                 await response.write_eof()
                 return response
@@ -733,12 +763,12 @@ async def get_cover(request):
     cover_path = get_cover_cache_path(file_id)
     
     if os.path.exists(cover_path):
-        return web.FileResponse(cover_path, headers={"Cache-Control": "public, max-age=86400"})
+        return web.FileResponse(cover_path, headers={"Cache-Control": "public, max-age=21600, immutable"})
         
     await resolve_track_metadata(file_id)
     
     if os.path.exists(cover_path):
-        return web.FileResponse(cover_path, headers={"Cache-Control": "public, max-age=86400"})
+        return web.FileResponse(cover_path, headers={"Cache-Control": "public, max-age=21600, immutable"})
          
     return web.Response(status=404)
 

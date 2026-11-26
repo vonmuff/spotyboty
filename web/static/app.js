@@ -3018,12 +3018,67 @@ scrollTopBtn.addEventListener('click', () => {
 
 let audioLoadTimer = null;
 let audioSwitchSeq = 0;
+let lastTrackSwitchAt = 0;
+let prefetchTimer = null;
+let prefetchController = null;
+const prefetchedStreamUrls = new Set();
+
+function cancelNextTrackPrefetch() {
+    if (prefetchTimer) {
+        clearTimeout(prefetchTimer);
+        prefetchTimer = null;
+    }
+    if (prefetchController) {
+        try { prefetchController.abort(); } catch (e) {}
+        prefetchController = null;
+    }
+}
+
+function scheduleNextTrackPrefetch() {
+    cancelNextTrackPrefetch();
+    const order = getActiveOrderIds();
+    if (order.length < 2 || !currentFileId) return;
+    const idx = order.indexOf(currentFileId);
+    if (idx === -1) return;
+    const nextId = order[(idx + 1) % order.length];
+    const nextTrack = allTracks.find(t => t.file_id === nextId);
+    if (!nextTrack || !nextTrack.stream_url || prefetchedStreamUrls.has(nextTrack.stream_url)) return;
+
+    const targetUrl = nextTrack.stream_url;
+    prefetchTimer = setTimeout(() => {
+        prefetchTimer = null;
+        if (audio.paused || document.hidden) return;
+        const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+        prefetchController = controller;
+        // Прогреваем file_path на сервере и первые 192 КБ аудиопотока в HTTP-кэше браузера
+        fetch(targetUrl, {
+            headers: { Range: 'bytes=0-196607' },
+            signal: controller ? controller.signal : undefined,
+        }).then((res) => {
+            if (res.ok) {
+                prefetchedStreamUrls.add(targetUrl);
+                if (prefetchedStreamUrls.size > 50) {
+                    const first = prefetchedStreamUrls.values().next().value;
+                    prefetchedStreamUrls.delete(first);
+                }
+                return res.arrayBuffer();
+            }
+        }).catch(() => {}).finally(() => {
+            if (prefetchController === controller) {
+                prefetchController = null;
+            }
+        });
+    }, 1500);
+}
 
 function playTrackById(fileId, shouldScroll = false) {
     const track = filteredTracks.find(t => t.file_id === fileId) || allTracks.find(t => t.file_id === fileId);
     if (!track) return;
     currentFileId = track.file_id;
     const switchSeq = ++audioSwitchSeq;
+    const now = performance.now();
+    const isRapidSkip = (now - lastTrackSwitchAt) < 320;
+    lastTrackSwitchAt = now;
 
     const titleText = track.title || track.name;
     const artistText = track.performer || 'Spotify';
@@ -3046,7 +3101,8 @@ function playTrackById(fileId, shouldScroll = false) {
     fpSeekSlider.value = 0;
     setProgressVisual(0, 0);
 
-    // Сразу глушим предыдущий поток, чтобы при быстром перелистывании не было «гудка» / щелчков
+    // Сразу отменяем фоновый prefetch и глушим предыдущий поток
+    cancelNextTrackPrefetch();
     if (audioLoadTimer) {
         clearTimeout(audioLoadTimer);
         audioLoadTimer = null;
@@ -3070,10 +3126,7 @@ function playTrackById(fileId, shouldScroll = false) {
         });
     }
 
-    // Небольшой дебаунс (140 мс) загрузки аудиопотока: если юзер быстро пролистывает треки,
-    // промежуточные потоки вообще не стартуют и не булькают/не гудят
-    audioLoadTimer = setTimeout(() => {
-        audioLoadTimer = null;
+    const startAudioStream = () => {
         if (switchSeq !== audioSwitchSeq) return;
         audio.src = track.stream_url;
         applyPlaybackRate();
@@ -3082,7 +3135,8 @@ function playTrackById(fileId, shouldScroll = false) {
         if (playPromise && typeof playPromise.then === 'function') {
             playPromise.then(() => {
                 if (switchSeq !== audioSwitchSeq) return;
-                fadeAudioVolume(0, 1, userSettings.audioFade ? 140 : 45);
+                fadeAudioVolume(0, 1, userSettings.audioFade ? 120 : 35);
+                scheduleNextTrackPrefetch();
             }).catch((err) => {
                 if (switchSeq !== audioSwitchSeq) return;
                 if (err && err.name === 'AbortError') return;
@@ -3091,9 +3145,20 @@ function playTrackById(fileId, shouldScroll = false) {
                 updatePlayButtons(false);
             });
         } else {
-            fadeAudioVolume(0, 1, 45);
+            fadeAudioVolume(0, 1, 35);
+            scheduleNextTrackPrefetch();
         }
-    }, 140);
+    };
+
+    // Одиночное переключение стартует мгновенно (0 мс); дебаунс 140 мс включается только при быстром пролистывании
+    if (isRapidSkip) {
+        audioLoadTimer = setTimeout(() => {
+            audioLoadTimer = null;
+            startAudioStream();
+        }, 140);
+    } else {
+        startAudioStream();
+    }
 }
 
 function playPrevTrack() {
