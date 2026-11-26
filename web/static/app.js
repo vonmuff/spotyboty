@@ -1326,13 +1326,49 @@ document.addEventListener('touchcancel', endTabSwipe);
 // ===== Two-finger Touchpad Swipes (PC: Playlists, Fullscreen Track Skip & Swipe-Down to Close) =====
 let wheelAccumX = 0;
 let wheelAccumY = 0;
+let wheelVisualY = 0;
+let wheelPullRafId = null;
 let wheelLocked = false;
 let wheelLockedAt = 0;
 let wheelResetTimer = null;
 
-function resetWheelVerticalPull() {
-    if (wheelAccumY !== 0) {
+function renderWheelPullFrame() {
+    wheelPullRafId = null;
+    if (!isFullPlayerOpen) {
+        wheelVisualY = 0;
+        return;
+    }
+    const targetY = Math.min(220, wheelAccumY * 0.46);
+    wheelVisualY += (targetY - wheelVisualY) * 0.28;
+    if (Math.abs(targetY - wheelVisualY) < 0.5) {
+        wheelVisualY = targetY;
+    }
+    fullPlayer.classList.add('dragging');
+    fullPlayer.style.transform = `translate3d(0, ${wheelVisualY.toFixed(1)}px, 0)`;
+
+    if (wheelVisualY >= 112) {
         wheelAccumY = 0;
+        wheelVisualY = 0;
+        wheelLocked = true;
+        wheelLockedAt = Date.now();
+        haptic('light');
+        closeFullPlayer();
+        return;
+    }
+
+    if (Math.abs(targetY - wheelVisualY) >= 0.5) {
+        wheelPullRafId = requestAnimationFrame(renderWheelPullFrame);
+    }
+}
+
+function resetWheelVerticalPull() {
+    if (wheelPullRafId !== null) {
+        cancelAnimationFrame(wheelPullRafId);
+        wheelPullRafId = null;
+    }
+    if (wheelAccumY !== 0 || wheelVisualY !== 0) {
+        wheelAccumY = 0;
+        wheelVisualY = 0;
         if (isFullPlayerOpen) {
             fullPlayer.classList.remove('dragging');
             fullPlayer.style.transform = '';
@@ -1358,33 +1394,26 @@ window.addEventListener('wheel', (e) => {
             wheelLocked = false;
             wheelResetTimer = null;
             resetWheelVerticalPull();
-        }, 160);
+        }, 210);
 
         if (wheelLocked) {
-            if (Date.now() - wheelLockedAt < 520) return;
+            if (Date.now() - wheelLockedAt < 560) return;
             wheelLocked = false;
             wheelAccumY = 0;
+            wheelVisualY = 0;
         }
 
         // На тачпаде с natural scrolling движение двух пальцев вниз даёт deltaY < 0
         if (e.deltaY < 0) {
-            wheelAccumY += -e.deltaY;
-            const pullY = Math.min(180, wheelAccumY * 0.72);
-            fullPlayer.classList.add('dragging');
-            fullPlayer.style.transform = `translate3d(0, ${pullY}px, 0)`;
-
-            if (pullY >= 78) {
-                wheelAccumY = 0;
-                wheelLocked = true;
-                wheelLockedAt = Date.now();
-                haptic('light');
-                closeFullPlayer();
+            wheelAccumY = Math.min(480, wheelAccumY + (-e.deltaY));
+            if (wheelPullRafId === null) {
+                wheelPullRafId = requestAnimationFrame(renderWheelPullFrame);
             }
         } else if (wheelAccumY > 0) {
             wheelAccumY = Math.max(0, wheelAccumY - e.deltaY);
-            const pullY = Math.min(180, wheelAccumY * 0.72);
-            fullPlayer.style.transform = pullY > 0 ? `translate3d(0, ${pullY}px, 0)` : '';
-            if (pullY === 0) fullPlayer.classList.remove('dragging');
+            if (wheelPullRafId === null) {
+                wheelPullRafId = requestAnimationFrame(renderWheelPullFrame);
+            }
         }
         return;
     }

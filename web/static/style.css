@@ -1119,7 +1119,7 @@ body.fp-open {
     transform: translate3d(0, 100%, 0);
     visibility: hidden;
     pointer-events: none;
-    transition: transform 0.36s cubic-bezier(0.22, 1, 0.36, 1), visibility 0s linear 0.36s;
+    transition: transform 0.46s cubic-bezier(0.22, 1, 0.36, 1), visibility 0s linear 0.46s;
     will-change: transform;
     backface-visibility: hidden;
     -webkit-backface-visibility: hidden;
@@ -1136,7 +1136,7 @@ body.fp-open {
     transform: translate3d(0, 0, 0);
     visibility: visible;
     pointer-events: auto;
-    transition: transform 0.36s cubic-bezier(0.22, 1, 0.36, 1), visibility 0s linear 0s;
+    transition: transform 0.44s cubic-bezier(0.22, 1, 0.36, 1), visibility 0s linear 0s;
 }
 
 .full-player.dragging {
