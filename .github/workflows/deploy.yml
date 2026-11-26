@@ -29,7 +29,8 @@ jobs:
         ssh "$USER@$HOST" << 'EOF'
           set -e
           cd /home/muffin/spotyboty
-          git pull origin main
+          git fetch origin main
+          git reset --hard origin/main
           mkdir -p data
           if [ -f "tracks_cache.db" ] && [ ! -e "data/tracks_cache.db" ]; then
             docker compose down || true
