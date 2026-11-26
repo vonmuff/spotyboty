@@ -1957,7 +1957,7 @@ function renderTracks(options = {}) {
             }
             playbackQueueIds = filteredTracks.map(t => t.file_id);
             if (isShuffle) rebuildShuffleQueue();
-            playTrackById(track.file_id);
+            playTrackById(track.file_id, true);
             if (userSettings.autoOpenPlayer) {
                 openFullPlayer();
             }
@@ -3277,16 +3277,21 @@ function scrollToActiveTrack() {
         const activeItem = trackListEl.querySelector('.track-item.active');
         if (!activeItem) return;
 
-        const headerH = headerEl ? headerEl.offsetHeight : 0;
-        const playerH = playerBar.classList.contains('visible') ? playerBar.offsetHeight : 0;
-        const visibleHeight = Math.max(120, window.innerHeight - headerH - playerH);
+        const viewTop = headerEl ? Math.max(0, headerEl.getBoundingClientRect().bottom) : 0;
+        const playerVisible = playerBar.classList.contains('visible');
+        let viewBottom = window.innerHeight;
+        if (playerVisible) {
+            const pRect = playerBar.getBoundingClientRect();
+            const pH = playerBar.offsetHeight || 125;
+            viewBottom = Math.min(window.innerHeight - pH, pRect.top > 0 ? pRect.top : window.innerHeight - pH);
+        }
+        const visibleHeight = Math.max(120, viewBottom - viewTop);
 
         const rect = activeItem.getBoundingClientRect();
-        // Комфортная «безопасная зона» внутри видимого экрана:
-        // если трек уже хорошо виден целиком и не прижат к шапке/плееру — вообще не дёргаем список
-        const edgePad = Math.min(68, visibleHeight * 0.16);
-        const safeTop = headerH + edgePad;
-        const safeBottom = window.innerHeight - playerH - edgePad;
+        // Комфортная «безопасная зона»: трек должен быть виден ЦЕЛИКОМ с запасом от шапки и мини-плеера
+        const edgePad = Math.max(20, Math.min(64, visibleHeight * 0.14));
+        const safeTop = viewTop + edgePad;
+        const safeBottom = viewBottom - edgePad;
 
         if (rect.top >= safeTop && rect.bottom <= safeBottom) {
             return;
@@ -3295,17 +3300,16 @@ function scrollToActiveTrack() {
         const currentScrollY = window.scrollY || document.documentElement.scrollTop || 0;
         const itemAbsTop = rect.top + currentScrollY;
 
-        // Если трек чуть ушёл за край — мягко подтягиваем в комфортную треть экрана, а не дёргаем резко
         let targetTop;
-        if (rect.top < safeTop && rect.bottom > headerH - rect.height * 2) {
-            // Совсем рядом сверху — ставим с мягким отступом от шапки
-            targetTop = itemAbsTop - headerH - Math.min(96, visibleHeight * 0.24);
-        } else if (rect.bottom > safeBottom && rect.top < window.innerHeight + rect.height * 2) {
-            // Совсем рядом снизу — мягко приподнимаем над мини-плеером
-            targetTop = itemAbsTop - headerH - (visibleHeight - rect.height) * 0.68;
+        if (rect.top < safeTop && rect.bottom > viewTop - rect.height * 2) {
+            // Сверху обрезан или прижат к шапке — опускаем с комфортным отступом
+            targetTop = itemAbsTop - viewTop - Math.min(84, visibleHeight * 0.22);
+        } else if (rect.bottom > safeBottom && rect.top < viewBottom + rect.height * 2) {
+            // Снизу обрезан мини-плеером или краем экрана — поднимаем целиком над плеером с запасом
+            targetTop = itemAbsTop - viewTop - (visibleHeight - rect.height - Math.min(84, visibleHeight * 0.22));
         } else {
             // Далеко за экраном (например, в Shuffle) — плавно центрируем
-            targetTop = itemAbsTop - headerH - (visibleHeight - rect.height) / 2;
+            targetTop = itemAbsTop - viewTop - (visibleHeight - rect.height) / 2;
         }
 
         smoothScrollToY(Math.max(0, targetTop));
