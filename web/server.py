@@ -16,6 +16,7 @@ from aiogram.utils.web_app import safe_parse_webapp_init_data
 from mutagen.mp3 import MP3
 from mutagen.id3 import ID3, APIC
 from bot.config import DB_PATH, WEB_STATIC_DIR, COVERS_DIR, MEDIA_SIGN_KEY
+from services.cache import write_optimized_cover, optimize_existing_cover_file
 
 logger = logging.getLogger(__name__)
 
@@ -35,6 +36,7 @@ _file_path_cache: dict[str, tuple[str, float]] = {}
 
 ROWID_CACHE_MAX_SIZE = 2000
 _rowid_to_file_id_cache: dict[int, str] = {}
+_checked_covers: set[str] = set()
 
 
 def _get_http_session() -> ClientSession:
@@ -146,8 +148,7 @@ def _extract_id3_sync(temp_name: str, cover_path: str):
 
         for tag in audio.tags.values():
             if isinstance(tag, APIC):
-                with open(cover_path, "wb") as f:
-                    f.write(tag.data)
+                write_optimized_cover(cover_path, tag.data)
                 break
     return title, performer
 
@@ -763,19 +764,24 @@ async def get_cover(request):
     cover_path = get_cover_cache_path(file_id)
     
     if os.path.exists(cover_path):
+        if cover_path not in _checked_covers:
+            _checked_covers.add(cover_path)
+            if len(_checked_covers) > 2000:
+                _checked_covers.clear()
+            await asyncio.to_thread(optimize_existing_cover_file, cover_path)
         return web.FileResponse(cover_path, headers={"Cache-Control": "public, max-age=21600, immutable"})
         
     await resolve_track_metadata(file_id)
     
     if os.path.exists(cover_path):
+        _checked_covers.add(cover_path)
         return web.FileResponse(cover_path, headers={"Cache-Control": "public, max-age=21600, immutable"})
          
     return web.Response(status=404)
 
 
 async def _on_startup(app: web.Application):
-    global http_session
-    http_session = ClientSession()
+    _get_http_session()
 
 
 async def _on_cleanup(app: web.Application):

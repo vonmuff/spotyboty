@@ -1,5 +1,6 @@
 import asyncio
 import hashlib
+import io
 import os
 import re
 import shutil
@@ -7,6 +8,11 @@ import sys
 from typing import Optional
 
 import aiosqlite
+
+try:
+    from PIL import Image as PILImage
+except ImportError:
+    PILImage = None
 
 from bot.config import (
     BASE_DIR,
@@ -68,6 +74,64 @@ def find_blacklisted_artist(artist_text: str) -> Optional[str]:
 
     match = pattern.search(artist_text.lower())
     return match.group(0) if match else None
+
+
+COVER_MAX_DIM = 400
+COVER_JPEG_QUALITY = 82
+COVER_RECOMPRESS_THRESHOLD = 45_000  # 45 КБ — всё крупнее автоматически ужимаем до 400x400
+
+
+def optimize_cover_bytes(raw_bytes: bytes, max_dim: int = COVER_MAX_DIM, quality: int = COVER_JPEG_QUALITY) -> bytes:
+    """Сжимает обложку до max_dim×max_dim progressive JPEG (~15-25 КБ вместо 150-300 КБ)."""
+    if not raw_bytes or PILImage is None:
+        return raw_bytes
+    try:
+        with PILImage.open(io.BytesIO(raw_bytes)) as img:
+            img_format = (img.format or "").upper()
+            w, h = img.size
+            if img_format == "JPEG" and w <= max_dim and h <= max_dim and len(raw_bytes) <= COVER_RECOMPRESS_THRESHOLD:
+                return raw_bytes
+            if img.mode != "RGB":
+                img = img.convert("RGB")
+            if w > max_dim or h > max_dim:
+                resample = getattr(PILImage, "Resampling", PILImage).LANCZOS
+                img.thumbnail((max_dim, max_dim), resample)
+            out = io.BytesIO()
+            img.save(out, format="JPEG", quality=quality, optimize=True, progressive=True)
+            optimized = out.getvalue()
+            if optimized and (len(optimized) < len(raw_bytes) or img_format != "JPEG" or w > max_dim or h > max_dim):
+                return optimized
+    except Exception:
+        pass
+    return raw_bytes
+
+
+def write_optimized_cover(cover_path: str, raw_bytes: bytes) -> None:
+    """Атомарно записывает оптимизированную обложку в кэш."""
+    data = optimize_cover_bytes(raw_bytes)
+    tmp_path = f"{cover_path}.tmp.{os.getpid()}"
+    with open(tmp_path, "wb") as f:
+        f.write(data)
+    os.replace(tmp_path, cover_path)
+
+
+def optimize_existing_cover_file(cover_path: str) -> None:
+    """Однократно сжимает уже существующую тяжёлую обложку (>45 КБ) прямо на диске."""
+    if PILImage is None:
+        return
+    try:
+        if os.path.getsize(cover_path) <= COVER_RECOMPRESS_THRESHOLD:
+            return
+        with open(cover_path, "rb") as f:
+            raw = f.read()
+        optimized = optimize_cover_bytes(raw)
+        if optimized and len(optimized) < len(raw):
+            tmp_path = f"{cover_path}.tmp.{os.getpid()}"
+            with open(tmp_path, "wb") as f:
+                f.write(optimized)
+            os.replace(tmp_path, cover_path)
+    except OSError:
+        pass
 
 
 def remove_cached_cover(file_id: str) -> None:

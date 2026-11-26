@@ -12,6 +12,7 @@ import yt_dlp
 from ytmusicapi import YTMusic
 
 from bot.config import COVERS_DIR
+from services.cache import write_optimized_cover
 
 logger = logging.getLogger(__name__)
 
@@ -478,14 +479,13 @@ async def download_cover_bytes(cover_url: Optional[str]) -> Optional[bytes]:
 
 
 def save_cover_to_cache(file_id: str, cover_bytes: Optional[bytes]) -> None:
-    """Сразу сохраняет обложку в covers_cache, чтобы WebApp отдавал её мгновенно без повторного скачивания MP3."""
+    """Сразу сохраняет оптимизированную обложку (400×400 JPEG) в covers_cache."""
     if not file_id or not cover_bytes:
         return
     try:
         os.makedirs(COVERS_DIR, exist_ok=True)
         safe_hash = hashlib.md5(file_id.encode("utf-8")).hexdigest()
         cover_path = os.path.join(COVERS_DIR, f"{safe_hash}.jpg")
-        with open(cover_path, "wb") as f:
-            f.write(cover_bytes)
+        write_optimized_cover(cover_path, cover_bytes)
     except OSError as e:
         logger.warning("Failed to save cover cache for %s: %s", file_id, e)
