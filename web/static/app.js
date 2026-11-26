@@ -904,20 +904,102 @@ function formatTime(sec) {
     return `${m}:${s < 10 ? '0' : ''}${s}`;
 }
 
-function renderSkeleton(count = 6) {
-    trackListEl.innerHTML = Array.from({ length: count }, () => `
-        <div class="skeleton-item">
-            <div class="skeleton-cover skeleton-shimmer"></div>
-            <div class="skeleton-meta">
-                <div class="skeleton-line title skeleton-shimmer"></div>
-                <div class="skeleton-line artist skeleton-shimmer"></div>
+let morphLoaderRafId = null;
+
+function stopMorphLoader() {
+    if (morphLoaderRafId !== null) {
+        cancelAnimationFrame(morphLoaderRafId);
+        morphLoaderRafId = null;
+    }
+}
+
+function startMorphLoader(pathEl) {
+    stopMorphLoader();
+    if (!pathEl) return;
+
+    const SAMPLES = 64;
+    const TWO_PI = Math.PI * 2;
+
+    const polyRadius = (theta, sides, roundMix) => {
+        const sector = TWO_PI / sides;
+        const a = ((theta % sector) + sector) % sector - sector / 2;
+        const raw = 38 * (Math.cos(Math.PI / sides) / Math.cos(a));
+        return raw * (1 - roundMix) + 38 * roundMix;
+    };
+
+    // 5 плавно перетекающих фигур: Круг → Скруглённый квадрат → Пятиугольник → Шестиугольник → Клевер
+    const shapes = [
+        (t) => 38, // Круг
+        (t) => 37 / Math.pow(Math.pow(Math.abs(Math.cos(t)), 4) + Math.pow(Math.abs(Math.sin(t)), 4), 0.25), // Квадрат
+        (t) => polyRadius(t, 5, 0.28), // Пятиугольник
+        (t) => polyRadius(t, 6, 0.24), // Шестиугольник
+        (t) => 35 + 7.5 * Math.cos(4 * t), // Клевер
+    ];
+
+    const precomputed = shapes.map((fn) => {
+        const arr = new Float32Array(SAMPLES);
+        for (let i = 0; i < SAMPLES; i++) {
+            arr[i] = fn((i / SAMPLES) * TWO_PI);
+        }
+        return arr;
+    });
+
+    const morphDuration = 900; // мс на перетекание одной фигуры в следующую
+    const startTime = performance.now();
+
+    const frame = (now) => {
+        if (!pathEl.isConnected) {
+            morphLoaderRafId = null;
+            return;
+        }
+        const elapsed = now - startTime;
+        const totalStages = precomputed.length;
+        const stagePos = elapsed / morphDuration;
+        const idxA = Math.floor(stagePos) % totalStages;
+        const idxB = (idxA + 1) % totalStages;
+        const rawT = stagePos - Math.floor(stagePos);
+        // Плавное S-образное перетекание (easeInOutCubic)
+        const eased = rawT < 0.5
+            ? 4 * rawT * rawT * rawT
+            : 1 - Math.pow(-2 * rawT + 2, 3) / 2;
+
+        const rot = (elapsed * 0.0011) % TWO_PI;
+        const shapeA = precomputed[idxA];
+        const shapeB = precomputed[idxB];
+
+        let d = '';
+        for (let i = 0; i < SAMPLES; i++) {
+            const r = shapeA[i] + (shapeB[i] - shapeA[i]) * eased;
+            const angle = (i / SAMPLES) * TWO_PI + rot;
+            const x = (Math.cos(angle) * r).toFixed(2);
+            const y = (Math.sin(angle) * r).toFixed(2);
+            d += (i === 0 ? `M ${x} ${y}` : ` L ${x} ${y}`);
+        }
+        d += ' Z';
+        pathEl.setAttribute('d', d);
+
+        morphLoaderRafId = requestAnimationFrame(frame);
+    };
+
+    morphLoaderRafId = requestAnimationFrame(frame);
+}
+
+function renderSkeleton() {
+    trackListEl.innerHTML = `
+        <div class="morph-loader" role="status" aria-label="Загрузка плейлиста">
+            <div class="morph-loader-stage">
+                <div class="morph-loader-glow"></div>
+                <svg class="morph-loader-svg" viewBox="-60 -60 120 120" width="76" height="76" aria-hidden="true">
+                    <path id="morphLoaderPath" class="morph-loader-path" d="M 38 0 A 38 38 0 1 0 -38 0 A 38 38 0 1 0 38 0 Z"/>
+                </svg>
             </div>
-            <div class="skeleton-actions">
-                <div class="skeleton-circle skeleton-shimmer"></div>
-                <div class="skeleton-circle skeleton-shimmer"></div>
-            </div>
+            <div class="morph-loader-text">Загрузка плейлиста...</div>
         </div>
-    `).join('');
+    `;
+    const pathEl = document.getElementById('morphLoaderPath');
+    if (pathEl && !userSettings.reducedMotion) {
+        startMorphLoader(pathEl);
+    }
 }
 
 let pendingResumeTime = null;
