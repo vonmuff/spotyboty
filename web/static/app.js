@@ -1333,7 +1333,12 @@ let wheelLockedAt = 0;
 let wheelResetTimer = null;
 
 function getWheelCloseThreshold() {
-    return Math.max(180, Math.round(window.innerHeight * 0.26));
+    return Math.max(105, Math.round(window.innerHeight * 0.16));
+}
+
+function getWheelTargetY() {
+    const maxPull = Math.round(window.innerHeight * 0.72);
+    return Math.min(maxPull, wheelAccumY * 0.52);
 }
 
 function renderWheelPullFrame() {
@@ -1342,9 +1347,8 @@ function renderWheelPullFrame() {
         wheelVisualY = 0;
         return;
     }
-    const maxPull = Math.round(window.innerHeight * 0.72);
-    const targetY = Math.min(maxPull, wheelAccumY * 0.28);
-    wheelVisualY += (targetY - wheelVisualY) * 0.24;
+    const targetY = getWheelTargetY();
+    wheelVisualY += (targetY - wheelVisualY) * 0.34;
     if (Math.abs(targetY - wheelVisualY) < 0.5) {
         wheelVisualY = targetY;
     }
@@ -1361,7 +1365,7 @@ function finishWheelVerticalPull() {
         cancelAnimationFrame(wheelPullRafId);
         wheelPullRafId = null;
     }
-    const pulledY = wheelVisualY;
+    const pulledY = Math.max(wheelVisualY, getWheelTargetY());
     wheelAccumY = 0;
     wheelVisualY = 0;
 
@@ -1421,9 +1425,8 @@ window.addEventListener('wheel', (e) => {
             wheelVisualY = 0;
         }
 
-        // Ограничиваем одиночный скачок deltaY (на тачпадах бывают всплески по 120-200px за тик)
-        const stepY = Math.max(-45, Math.min(45, e.deltaY));
-        const maxAccum = Math.round((window.innerHeight * 0.72) / 0.28);
+        const stepY = Math.max(-85, Math.min(85, e.deltaY));
+        const maxAccum = Math.round((window.innerHeight * 0.72) / 0.52);
 
         // На тачпаде с natural scrolling движение двух пальцев вниз даёт deltaY < 0
         if (stepY < 0) {
@@ -1431,8 +1434,7 @@ window.addEventListener('wheel', (e) => {
             if (wheelPullRafId === null) {
                 wheelPullRafId = requestAnimationFrame(renderWheelPullFrame);
             }
-            // Если пользователь уже протянул плеер больше чем на половину экрана — закрываем сразу
-            if (wheelVisualY >= window.innerHeight * 0.52) {
+            if (getWheelTargetY() >= window.innerHeight * 0.42) {
                 if (wheelResetTimer) {
                     clearTimeout(wheelResetTimer);
                     wheelResetTimer = null;
