@@ -1,5 +1,5 @@
 import asyncio
-from datetime import datetime
+from datetime import datetime, timedelta
 import hashlib
 import hmac
 import logging
@@ -753,6 +753,158 @@ async def send_track(request):
         return web.json_response({'status': 'sent'})
     except Exception as e:
         return web.json_response({'error': str(e)}, status=500)
+
+
+@routes.post('/api/stats/play')
+async def record_track_play(request):
+    """Записывает прослушивание трека в play_history для персональной статистики."""
+    user_id = _get_authenticated_user_id(request)
+    if user_id is None:
+        return web.json_response({'error': 'Unauthorized'}, status=401)
+
+    try:
+        body = await request.json()
+    except Exception:
+        return web.json_response({'error': 'Invalid JSON'}, status=400)
+
+    file_id = str(body.get('file_id', '')).strip()
+    if not file_id:
+        return web.json_response({'error': 'file_id required'}, status=400)
+
+    try:
+        listened_sec = int(float(body.get('listened_sec', 0)))
+    except (TypeError, ValueError):
+        listened_sec = 0
+    listened_sec = max(1, min(7200, listened_sec))
+
+    async with aiosqlite.connect(DB_PATH) as conn:
+        async with conn.execute(
+            """
+            SELECT COALESCE(p.title, t.title), COALESCE(p.performer, t.performer)
+            FROM playlist p
+            LEFT JOIN tracks t ON p.file_id = t.file_id
+            WHERE p.user_id = ? AND p.file_id = ?
+            LIMIT 1
+            """,
+            (user_id, file_id),
+        ) as cur:
+            row = await cur.fetchone()
+        if not row:
+            return web.json_response({'error': 'Not found'}, status=404)
+
+        title = row[0] or str(body.get('title', '')).strip()[:160] or 'Без названия'
+        performer = row[1] or str(body.get('performer', '')).strip()[:120] or 'Spotify'
+
+        await conn.execute(
+            """
+            INSERT INTO play_history (user_id, file_id, title, performer, listened_sec, played_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (user_id, file_id, title, performer, listened_sec, datetime.now().isoformat()),
+        )
+        await conn.commit()
+
+    return web.json_response({'status': 'ok'})
+
+
+@routes.get('/api/stats')
+async def get_user_stats(request):
+    """Возвращает персональную статистику прослушиваний (Spotify Wrapped-карточка)."""
+    user_id = _get_authenticated_user_id(request)
+    if user_id is None:
+        return web.json_response({'error': 'Unauthorized'}, status=401)
+
+    period = request.query.get('period', 'all')
+    since_iso = None
+    if period == '7d':
+        since_iso = (datetime.now() - timedelta(days=7)).isoformat()
+    elif period == '30d':
+        since_iso = (datetime.now() - timedelta(days=30)).isoformat()
+
+    where_sql = "WHERE user_id = ?"
+    params: list = [user_id]
+    if since_iso:
+        where_sql += " AND played_at >= ?"
+        params.append(since_iso)
+
+    async with aiosqlite.connect(DB_PATH) as conn:
+        async with conn.execute(
+            f"""
+            SELECT COUNT(*), COALESCE(SUM(listened_sec), 0), COUNT(DISTINCT file_id)
+            FROM play_history
+            {where_sql}
+            """,
+            params,
+        ) as cur:
+            summary_row = await cur.fetchone()
+
+        total_plays = int(summary_row[0] or 0)
+        total_seconds = int(summary_row[1] or 0)
+        unique_tracks = int(summary_row[2] or 0)
+
+        async with conn.execute(
+            f"""
+            SELECT performer, COUNT(*) AS plays, COALESCE(SUM(listened_sec), 0) AS secs
+            FROM play_history
+            {where_sql} AND performer IS NOT NULL AND TRIM(performer) != ''
+            GROUP BY LOWER(TRIM(performer))
+            ORDER BY plays DESC, secs DESC
+            LIMIT 3
+            """,
+            params,
+        ) as cur:
+            artist_rows = await cur.fetchall()
+
+        async with conn.execute(
+            f"""
+            SELECT h.file_id,
+                   MAX(h.title) AS title,
+                   MAX(h.performer) AS performer,
+                   COUNT(*) AS plays,
+                   COALESCE(SUM(h.listened_sec), 0) AS secs,
+                   MAX(p.rowid) AS row_id
+            FROM play_history h
+            LEFT JOIN playlist p ON p.user_id = h.user_id AND p.file_id = h.file_id
+            WHERE h.user_id = ? {"AND h.played_at >= ?" if since_iso else ""}
+            GROUP BY h.file_id
+            ORDER BY plays DESC, secs DESC
+            LIMIT 5
+            """,
+            params,
+        ) as cur:
+            track_rows = await cur.fetchall()
+
+    top_artists = [
+        {"performer": r[0], "plays": int(r[1]), "seconds": int(r[2])}
+        for r in artist_rows
+    ]
+
+    top_tracks = []
+    for fid, title, performer, plays, secs, row_id in track_rows:
+        cover_url = None
+        if row_id is not None:
+            _cache_rowid_file_id(row_id, fid)
+            item_id = str(row_id)
+            exp, sig = sign_media_token(item_id)
+            cover_url = f"/api/cover?{urlencode({'id': item_id, 'exp': exp, 'sig': sig})}"
+        top_tracks.append({
+            "file_id": fid,
+            "title": title or "Без названия",
+            "performer": performer or "Spotify",
+            "plays": int(plays),
+            "seconds": int(secs),
+            "cover_url": cover_url,
+            "in_library": row_id is not None,
+        })
+
+    return web.json_response({
+        "period": period,
+        "total_plays": total_plays,
+        "total_seconds": total_seconds,
+        "unique_tracks": unique_tracks,
+        "top_artists": top_artists,
+        "top_tracks": top_tracks,
+    })
 
 
 @routes.get('/api/cover')

@@ -72,6 +72,20 @@ async def init_db():
         await conn.execute("CREATE INDEX IF NOT EXISTS idx_playlist_items_playlist_id ON playlist_items(playlist_id)")
         await conn.execute("CREATE INDEX IF NOT EXISTS idx_playlist_items_file_id ON playlist_items(file_id)")
 
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS play_history (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                file_id TEXT NOT NULL,
+                title TEXT,
+                performer TEXT,
+                listened_sec INTEGER NOT NULL DEFAULT 0,
+                played_at TEXT NOT NULL
+            )
+        """)
+        await conn.execute("CREATE INDEX IF NOT EXISTS idx_play_history_user_id ON play_history(user_id)")
+        await conn.execute("CREATE INDEX IF NOT EXISTS idx_play_history_user_played_at ON play_history(user_id, played_at)")
+
         for table in ("tracks", "playlist"):
             for col in ("title", "performer"):
                 try:

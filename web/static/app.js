@@ -127,6 +127,9 @@ let isPlModalOpen = false;
 let isAddTracksModalOpen = false;
 let isTrackPlaylistsModalOpen = false;
 let isTrackActionsOpen = false;
+let isStatsOpen = false;
+let statsPeriod = 'all';
+let listenSession = { fileId: null, accumSec: 0, lastResumeAt: null, duration: 0 };
 let trackPlaylistsTargetFileId = null;
 let trackActionsTargetFileId = null;
 let pendingAddFileIdAfterCreate = null;
@@ -278,6 +281,11 @@ const undoToast = document.getElementById('undoToast');
 const undoToastText = document.getElementById('undoToastText');
 const undoDeleteBtn = document.getElementById('undoDeleteBtn');
 const settingsBtn = document.getElementById('settingsBtn');
+const statsBtn = document.getElementById('statsBtn');
+const statsBackdrop = document.getElementById('statsBackdrop');
+const statsCloseBtn = document.getElementById('statsCloseBtn');
+const statsPeriodSegment = document.getElementById('statsPeriodSegment');
+const statsBody = document.getElementById('statsBody');
 const settingsBackdrop = document.getElementById('settingsBackdrop');
 const settingsSheet = document.getElementById('settingsSheet');
 const settingsCloseBtn = document.getElementById('settingsCloseBtn');
@@ -1248,7 +1256,7 @@ function animateTabSwipeSwitch(targetPlId, direction) {
 
 document.addEventListener('touchstart', (e) => {
     if (userPlaylists.length === 0) return;
-    if (isFullPlayerOpen || isSettingsOpen || isPlActionsOpen || isPlModalOpen || isAddTracksModalOpen || isTrackPlaylistsModalOpen || isTrackActionsOpen) return;
+    if (isFullPlayerOpen || isSettingsOpen || isStatsOpen || isPlActionsOpen || isPlModalOpen || isAddTracksModalOpen || isTrackPlaylistsModalOpen || isTrackActionsOpen) return;
     if (e.touches.length !== 1) return;
     if (e.target.closest('.header, .player-bar, .seek-wrapper, .undo-toast, .drag-handle, input, button')) return;
     if (userSettings.swipeMode === 'tracks' && e.target.closest('.track-swipe-wrap')) return;
@@ -1332,7 +1340,7 @@ let wheelResetTimer = null;
 
 window.addEventListener('wheel', (e) => {
     if (e.ctrlKey) return;
-    if (isSettingsOpen || isPlActionsOpen || isPlModalOpen || isAddTracksModalOpen || isTrackPlaylistsModalOpen || isTrackActionsOpen) return;
+    if (isSettingsOpen || isStatsOpen || isPlActionsOpen || isPlModalOpen || isAddTracksModalOpen || isTrackPlaylistsModalOpen || isTrackActionsOpen) return;
     if (!isFullPlayerOpen && e.target.closest('.playlist-tabs')) return;
 
     const absX = Math.abs(e.deltaX);
@@ -2384,6 +2392,8 @@ try {
             closePlaylistModal();
         } else if (isPlActionsOpen) {
             closePlaylistActions();
+        } else if (isStatsOpen) {
+            closeStats();
         } else if (isSettingsOpen) {
             closeSettings();
         } else if (isFullPlayerOpen) {
@@ -2399,9 +2409,219 @@ document.addEventListener('keydown', (e) => {
         else if (isAddTracksModalOpen) closeAddTracksModal();
         else if (isPlModalOpen) closePlaylistModal();
         else if (isPlActionsOpen) closePlaylistActions();
+        else if (isStatsOpen) closeStats();
         else if (isSettingsOpen) closeSettings();
         else if (isFullPlayerOpen) closeFullPlayer();
     }
+});
+
+// ===== Listening Stats Tracking & Wrapped Card =====
+function pauseListenSession() {
+    if (listenSession.lastResumeAt !== null) {
+        const delta = (performance.now() - listenSession.lastResumeAt) / 1000;
+        if (delta > 0 && delta < 3600) {
+            listenSession.accumSec += delta;
+        }
+        listenSession.lastResumeAt = null;
+    }
+}
+
+function resumeListenSession() {
+    if (!currentFileId) return;
+    if (listenSession.fileId !== currentFileId) {
+        listenSession = {
+            fileId: currentFileId,
+            accumSec: 0,
+            lastResumeAt: performance.now(),
+            duration: Number(audio.duration) || 0,
+        };
+    } else if (listenSession.lastResumeAt === null) {
+        listenSession.lastResumeAt = performance.now();
+        if (audio.duration) listenSession.duration = audio.duration;
+    }
+}
+
+function flushListenSession(keepalive = false) {
+    pauseListenSession();
+    const { fileId, accumSec, duration } = listenSession;
+    listenSession = { fileId: null, accumSec: 0, lastResumeAt: null, duration: 0 };
+    if (!fileId || !initData) return;
+
+    const minThreshold = duration > 0 && duration < 35 ? Math.max(5, duration * 0.4) : 15;
+    if (accumSec < minThreshold) return;
+
+    const track = allTracks.find(t => t.file_id === fileId);
+    const payload = JSON.stringify({
+        file_id: fileId,
+        listened_sec: Math.round(accumSec),
+        title: track ? (track.title || track.name || '') : '',
+        performer: track ? (track.performer || '') : '',
+    });
+
+    fetch('/api/stats/play', {
+        method: 'POST',
+        headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+        body: payload,
+        keepalive,
+    }).catch(() => {});
+}
+
+function formatListeningDuration(totalSec) {
+    const mins = Math.floor(totalSec / 60);
+    if (mins < 1) return totalSec > 0 ? '< 1 мин' : '0 мин';
+    const hours = Math.floor(mins / 60);
+    const remMins = mins % 60;
+    if (hours === 0) return `${mins} мин`;
+    return remMins > 0 ? `${hours} ч ${remMins} мин` : `${hours} ч`;
+}
+
+function renderStatsContent(data) {
+    if (!data || data.total_plays === 0) {
+        statsBody.innerHTML = `
+            <div class="stats-empty">
+                Послушайте пару треков (от 15 секунд),<br>и здесь появится ваша персональная статистика ✨
+            </div>
+        `;
+        return;
+    }
+
+    const periodLabels = {
+        all: 'За всё время',
+        '30d': 'За последние 30 дней',
+        '7d': 'За последние 7 дней',
+    };
+
+    const medals = ['🥇', '🥈', '🥉'];
+    const maxArtistPlays = data.top_artists.length > 0 ? Math.max(1, data.top_artists[0].plays) : 1;
+
+    const artistsHtml = data.top_artists.length > 0
+        ? `
+            <div class="stats-card">
+                <div class="stats-card-title">🏆 Любимые исполнители</div>
+                <div class="stats-artist-list">
+                    ${data.top_artists.map((a, i) => {
+                        const pct = Math.max(12, Math.round((a.plays / maxArtistPlays) * 100));
+                        return `
+                            <div class="stats-artist-row">
+                                <div class="stats-artist-head">
+                                    <span class="stats-artist-name">${medals[i] || '•'} ${escapeHtml(a.performer)}</span>
+                                    <span class="stats-artist-count">${a.plays} просл.</span>
+                                </div>
+                                <div class="stats-bar-track">
+                                    <div class="stats-bar-fill" style="width:${pct}%"></div>
+                                </div>
+                            </div>
+                        `;
+                    }).join('')}
+                </div>
+            </div>
+        `
+        : '';
+
+    const tracksHtml = data.top_tracks.length > 0
+        ? `
+            <div class="stats-card">
+                <div class="stats-card-title">🔥 Топ треков</div>
+                <div class="stats-track-list">
+                    ${data.top_tracks.map((t, i) => `
+                        <div class="stats-track-row ${t.in_library ? '' : 'unavailable'}" data-stats-fid="${escapeHtml(t.file_id)}" data-in-lib="${t.in_library ? '1' : '0'}">
+                            <span class="stats-track-rank">${i + 1}</span>
+                            <div class="stats-track-cover">
+                                ${t.cover_url
+                                    ? `<img src="${t.cover_url}" alt="" loading="lazy" onerror="this.style.display='none'; this.parentElement.textContent='🎵';">`
+                                    : '🎵'}
+                            </div>
+                            <div class="stats-track-info">
+                                <div class="stats-track-title">${escapeHtml(t.title)}</div>
+                                <div class="stats-track-artist">${escapeHtml(t.performer)}</div>
+                            </div>
+                            <span class="stats-track-badge">×${t.plays}</span>
+                        </div>
+                    `).join('')}
+                </div>
+            </div>
+        `
+        : '';
+
+    statsBody.innerHTML = `
+        <div class="stats-hero">
+            <div class="stats-hero-label">${periodLabels[data.period] || periodLabels.all}</div>
+            <div class="stats-hero-value">${formatListeningDuration(data.total_seconds)}</div>
+            <div class="stats-hero-pills">
+                <span class="stats-pill">🎧 ${data.total_plays} прослушиваний</span>
+                <span class="stats-pill">🎵 ${data.unique_tracks} уникальных</span>
+            </div>
+        </div>
+        ${artistsHtml}
+        ${tracksHtml}
+    `;
+
+    statsBody.querySelectorAll('.stats-track-row[data-in-lib="1"]').forEach((row) => {
+        row.addEventListener('click', () => {
+            const fid = row.dataset.statsFid;
+            if (!fid) return;
+            haptic('light');
+            closeStats();
+            playTrackById(fid, true);
+            if (userSettings.autoOpenPlayer) openFullPlayer();
+        });
+    });
+}
+
+async function loadAndRenderStats(period = statsPeriod) {
+    statsPeriod = period;
+    statsPeriodSegment.querySelectorAll('.seg-btn').forEach((btn) => {
+        btn.classList.toggle('active', btn.dataset.period === period);
+    });
+    statsBody.innerHTML = `<div class="stats-empty">Загрузка статистики...</div>`;
+    try {
+        const res = await fetch(`/api/stats?period=${encodeURIComponent(period)}`, {
+            headers: authHeaders(),
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+        if (period === statsPeriod) {
+            renderStatsContent(data);
+        }
+    } catch (e) {
+        statsBody.innerHTML = `<div class="stats-empty">Не удалось загрузить статистику</div>`;
+    }
+}
+
+function openStats() {
+    if (isStatsOpen) return;
+    isStatsOpen = true;
+    document.body.classList.add('settings-open');
+    statsBackdrop.classList.add('open');
+    statsBackdrop.setAttribute('aria-hidden', 'false');
+    haptic('light');
+    try { tg.BackButton?.show(); } catch (e) {}
+    loadAndRenderStats(statsPeriod);
+}
+
+function closeStats() {
+    if (!isStatsOpen) return;
+    isStatsOpen = false;
+    statsBackdrop.classList.remove('open');
+    statsBackdrop.setAttribute('aria-hidden', 'true');
+    if (!isSettingsOpen && !isPlModalOpen && !isAddTracksModalOpen && !isPlActionsOpen && !isTrackPlaylistsModalOpen && !isTrackActionsOpen) {
+        document.body.classList.remove('settings-open');
+    }
+    if (!isFullPlayerOpen && !isSettingsOpen && !isPlModalOpen && !isAddTracksModalOpen && !isPlActionsOpen && !isTrackPlaylistsModalOpen && !isTrackActionsOpen) {
+        try { tg.BackButton?.hide(); } catch (e) {}
+    }
+}
+
+statsBtn.addEventListener('click', openStats);
+statsCloseBtn.addEventListener('click', closeStats);
+statsBackdrop.addEventListener('click', (e) => {
+    if (e.target === statsBackdrop) closeStats();
+});
+statsPeriodSegment.addEventListener('click', (e) => {
+    const btn = e.target.closest('.seg-btn');
+    if (!btn) return;
+    haptic('light');
+    loadAndRenderStats(btn.dataset.period || 'all');
 });
 
 function hideLayerInstantly(el) {
@@ -3167,6 +3387,9 @@ function scheduleNextTrackPrefetch() {
 function playTrackById(fileId, shouldScroll = false) {
     const track = filteredTracks.find(t => t.file_id === fileId) || allTracks.find(t => t.file_id === fileId);
     if (!track) return;
+    if (listenSession.fileId && listenSession.fileId !== track.file_id) {
+        flushListenSession(false);
+    }
     currentFileId = track.file_id;
     const switchSeq = ++audioSwitchSeq;
     const now = performance.now();
@@ -3363,12 +3586,17 @@ audio.addEventListener('playing', () => {
     isSwitchingTrack = false;
     updatePlayButtons(true);
     startProgressLoop();
+    resumeListenSession();
 });
 audio.addEventListener('play', () => {
     updatePlayButtons(true);
     startProgressLoop();
 });
+audio.addEventListener('waiting', () => {
+    pauseListenSession();
+});
 audio.addEventListener('pause', () => {
+    pauseListenSession();
     if (isSwitchingTrack) return;
     updatePlayButtons(false);
     stopProgressLoop();
@@ -3400,6 +3628,7 @@ audio.addEventListener('timeupdate', () => {
 
 audio.addEventListener('ended', () => {
     stopProgressLoop();
+    flushListenSession(false);
     if (sleepMode === 'track') {
         clearSleepTimer();
         updatePlayButtons(false);
@@ -3536,6 +3765,7 @@ undoDeleteBtn.addEventListener('click', () => {
 
 window.addEventListener('pagehide', () => {
     saveLastTrackState(true);
+    flushListenSession(true);
     flushPendingDelete(true);
 });
 
