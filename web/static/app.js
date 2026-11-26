@@ -2743,6 +2743,43 @@ function endStatsSwipe() {
 statsSheet.addEventListener('touchend', endStatsSwipe);
 statsSheet.addEventListener('touchcancel', endStatsSwipe);
 
+// Two-finger touchpad swipe-down on PC to close stats sheet (when at top of sheet)
+let statsWheelAccumY = 0;
+let statsWheelResetTimer = null;
+
+statsSheet.addEventListener('wheel', (e) => {
+    if (!isStatsOpen || e.ctrlKey) return;
+    const absX = Math.abs(e.deltaX);
+    const absY = Math.abs(e.deltaY);
+    if (absY < 4 || absY <= absX * 1.35) return;
+
+    const atTop = statsSheet.scrollTop <= 1;
+    const canScroll = statsSheet.scrollHeight > statsSheet.clientHeight + 2;
+
+    // Если контент длинный и пользователь скроллит вниз по нему — не мешаем обычному скроллу
+    if (canScroll && (!atTop || e.deltaY > 0)) {
+        statsWheelAccumY = 0;
+        return;
+    }
+
+    if (e.cancelable) e.preventDefault();
+
+    if (statsWheelResetTimer) clearTimeout(statsWheelResetTimer);
+    statsWheelResetTimer = setTimeout(() => {
+        statsWheelAccumY = 0;
+        statsWheelResetTimer = null;
+    }, 180);
+
+    statsWheelAccumY += e.deltaY;
+    if (Math.abs(statsWheelAccumY) >= 85) {
+        statsWheelAccumY = 0;
+        wheelLocked = true;
+        wheelLockedAt = Date.now();
+        haptic('light');
+        closeStats();
+    }
+}, { passive: false });
+
 function hideLayerInstantly(el) {
     el.style.transition = 'none';
     el.classList.remove('visible');
