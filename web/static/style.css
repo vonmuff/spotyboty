@@ -968,6 +968,14 @@ body.has-player .undo-toast {
     transform: translate(-50%, -50%) scale(1.15);
 }
 
+.seek-wrapper.seek-resetting .seek-fill {
+    transition: width 0.28s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.seek-wrapper.seek-resetting .seek-thumb {
+    transition: left 0.28s cubic-bezier(0.22, 1, 0.36, 1), transform 0.15s ease;
+}
+
 .seek-slider {
     position: absolute;
     inset: 0;

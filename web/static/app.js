@@ -822,7 +822,33 @@ applyUserSettings();
 applyPlaybackRate();
 
 let progressRafId = null;
+let progressResetTimer = null;
 let pendingDelete = null;
+
+function clearSmoothProgressReset() {
+    if (progressResetTimer) {
+        clearTimeout(progressResetTimer);
+        progressResetTimer = null;
+    }
+    seekWrapper.classList.remove('seek-resetting');
+    fpSeekWrapper.classList.remove('seek-resetting');
+}
+
+function resetProgressSmoothly() {
+    clearSmoothProgressReset();
+    if (!userSettings.reducedMotion) {
+        seekWrapper.classList.add('seek-resetting');
+        fpSeekWrapper.classList.add('seek-resetting');
+        progressResetTimer = setTimeout(() => {
+            progressResetTimer = null;
+            seekWrapper.classList.remove('seek-resetting');
+            fpSeekWrapper.classList.remove('seek-resetting');
+        }, 300);
+    }
+    seekSlider.value = 0;
+    fpSeekSlider.value = 0;
+    setProgressVisual(0, 0);
+}
 
 function setProgressVisual(current, duration) {
     const pct = duration > 0 ? Math.max(0, Math.min(100, (current / duration) * 100)) : 0;
@@ -3097,9 +3123,7 @@ function playTrackById(fileId, shouldScroll = false) {
     preloadNeighborCovers();
 
     pendingResumeTime = null;
-    seekSlider.value = 0;
-    fpSeekSlider.value = 0;
-    setProgressVisual(0, 0);
+    resetProgressSmoothly();
 
     // Сразу отменяем фоновый prefetch и глушим предыдущий поток
     cancelNextTrackPrefetch();
@@ -3327,6 +3351,7 @@ audio.addEventListener('ended', () => {
 
 function bindSeekSlider(sliderEl, wrapperEl) {
     sliderEl.addEventListener('input', () => {
+        clearSmoothProgressReset();
         isSeeking = true;
         wrapperEl.classList.add('seeking');
         const val = parseFloat(sliderEl.value) || 0;
