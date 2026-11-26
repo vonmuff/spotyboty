@@ -2340,6 +2340,11 @@ body.settings-open {
 }
 
 /* ===== Stats Wrapped Card ===== */
+.stats-sheet {
+    height: min(78vh, 620px);
+    contain: layout style;
+}
+
 .stats-body {
     display: flex;
     flex-direction: column;
@@ -2410,8 +2415,7 @@ body.settings-open {
     font-weight: 600;
     padding: 5px 10px;
     border-radius: 99px;
-    background: rgba(0, 0, 0, 0.22);
-    backdrop-filter: blur(6px);
+    background: rgba(0, 0, 0, 0.26);
 }
 
 .stats-card {
