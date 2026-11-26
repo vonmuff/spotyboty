@@ -50,21 +50,17 @@ body {
     position: sticky;
     top: 0;
     z-index: 30;
-    background-color: var(--bg-main);
-    background: var(--header-bg);
-    backdrop-filter: blur(16px);
-    -webkit-backdrop-filter: blur(16px);
-    padding: 16px 16px 12px;
+    background: var(--bg-main);
+    padding: 14px 16px 12px;
     border-bottom: 1px solid var(--border-subtle);
     transform: translateZ(0);
     -webkit-transform: translateZ(0);
     isolation: isolate;
-    transition: padding 0.22s ease, box-shadow 0.25s ease;
+    transition: box-shadow 0.22s ease;
 }
 
 .header.scrolled {
-    padding: 11px 16px 10px;
-    box-shadow: 0 8px 24px var(--bar-shadow);
+    box-shadow: 0 6px 18px var(--bar-shadow);
 }
 
 .scroll-top-btn {
