@@ -2995,17 +2995,23 @@ function smoothScrollToY(targetY) {
     const startY = window.scrollY || document.documentElement.scrollTop || 0;
     const distance = clampedTarget - startY;
 
-    if (Math.abs(distance) < 4) return;
+    if (Math.abs(distance) < 6) return;
 
-    // Адаптивная длительность: короткий скролл ~280ms, длинный прыжок в Shuffle до 560ms
-    const duration = Math.min(560, Math.max(280, Math.abs(distance) * 0.32));
+    if (userSettings.reducedMotion) {
+        window.scrollTo(0, clampedTarget);
+        return;
+    }
+
+    // Мягкая адаптивная длительность (420–780 мс) + S-кривая easeInOutCubic без резкого рывка на старте
+    const duration = Math.min(780, Math.max(420, Math.abs(distance) * 0.45));
     const startTime = performance.now();
 
     function step(now) {
         const elapsed = now - startTime;
         const progress = Math.min(1, elapsed / duration);
-        // Плавная кривая easeOutCubic (60/120 FPS)
-        const eased = 1 - Math.pow(1 - progress, 3);
+        const eased = progress < 0.5
+            ? 4 * progress * progress * progress
+            : 1 - Math.pow(-2 * progress + 2, 3) / 2;
         window.scrollTo(0, startY + distance * eased);
 
         if (progress < 1) {
@@ -3056,12 +3062,33 @@ function scrollToActiveTrack() {
         const visibleHeight = Math.max(120, window.innerHeight - headerH - playerH);
 
         const rect = activeItem.getBoundingClientRect();
+        // Комфортная «безопасная зона» внутри видимого экрана:
+        // если трек уже хорошо виден целиком и не прижат к шапке/плееру — вообще не дёргаем список
+        const edgePad = Math.min(68, visibleHeight * 0.16);
+        const safeTop = headerH + edgePad;
+        const safeBottom = window.innerHeight - playerH - edgePad;
+
+        if (rect.top >= safeTop && rect.bottom <= safeBottom) {
+            return;
+        }
+
         const currentScrollY = window.scrollY || document.documentElement.scrollTop || 0;
         const itemAbsTop = rect.top + currentScrollY;
 
-        // Центрируем активный трек в видимой области между шапкой и нижним плеером
-        const targetTop = Math.max(0, itemAbsTop - headerH - (visibleHeight - rect.height) / 2);
-        smoothScrollToY(targetTop);
+        // Если трек чуть ушёл за край — мягко подтягиваем в комфортную треть экрана, а не дёргаем резко
+        let targetTop;
+        if (rect.top < safeTop && rect.bottom > headerH - rect.height * 2) {
+            // Совсем рядом сверху — ставим с мягким отступом от шапки
+            targetTop = itemAbsTop - headerH - Math.min(96, visibleHeight * 0.24);
+        } else if (rect.bottom > safeBottom && rect.top < window.innerHeight + rect.height * 2) {
+            // Совсем рядом снизу — мягко приподнимаем над мини-плеером
+            targetTop = itemAbsTop - headerH - (visibleHeight - rect.height) * 0.68;
+        } else {
+            // Далеко за экраном (например, в Shuffle) — плавно центрируем
+            targetTop = itemAbsTop - headerH - (visibleHeight - rect.height) / 2;
+        }
+
+        smoothScrollToY(Math.max(0, targetTop));
     });
 }
 
