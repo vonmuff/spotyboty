@@ -2743,21 +2743,24 @@ function endStatsSwipe() {
 statsSheet.addEventListener('touchend', endStatsSwipe);
 statsSheet.addEventListener('touchcancel', endStatsSwipe);
 
-// Two-finger touchpad swipe-down on PC to close stats sheet (when at top of sheet)
+// Two-finger touchpad vertical swipe on PC to close stats sheet (same behavior as fullscreen player)
 let statsWheelAccumY = 0;
 let statsWheelResetTimer = null;
 
-statsSheet.addEventListener('wheel', (e) => {
+statsBackdrop.addEventListener('wheel', (e) => {
     if (!isStatsOpen || e.ctrlKey) return;
     const absX = Math.abs(e.deltaX);
     const absY = Math.abs(e.deltaY);
     if (absY < 4 || absY <= absX * 1.35) return;
 
-    const atTop = statsSheet.scrollTop <= 1;
+    const insideSheet = Boolean(e.target.closest('#statsSheet'));
     const canScroll = statsSheet.scrollHeight > statsSheet.clientHeight + 2;
+    const atTop = statsSheet.scrollTop <= 1;
+    const atBottom = statsSheet.scrollTop + statsSheet.clientHeight >= statsSheet.scrollHeight - 2;
 
-    // Если контент длинный и пользователь скроллит вниз по нему — не мешаем обычному скроллу
-    if (canScroll && (!atTop || e.deltaY > 0)) {
+    // Если курсор внутри длинного списка и есть куда скроллить — даём скроллить контент;
+    // на границе (верх/низ) или вне шторки свайп вверх/вниз сразу закрывает статистику, как плеер
+    if (insideSheet && canScroll && ((e.deltaY > 0 && !atBottom) || (e.deltaY < 0 && !atTop))) {
         statsWheelAccumY = 0;
         return;
     }
@@ -2767,17 +2770,24 @@ statsSheet.addEventListener('wheel', (e) => {
     if (statsWheelResetTimer) clearTimeout(statsWheelResetTimer);
     statsWheelResetTimer = setTimeout(() => {
         statsWheelAccumY = 0;
+        wheelLocked = false;
         statsWheelResetTimer = null;
-    }, 180);
+    }, 200);
+
+    if (wheelLocked) {
+        if (Date.now() - wheelLockedAt < 560) return;
+        wheelLocked = false;
+        statsWheelAccumY = 0;
+    }
 
     statsWheelAccumY += e.deltaY;
-    if (Math.abs(statsWheelAccumY) >= 85) {
-        statsWheelAccumY = 0;
-        wheelLocked = true;
-        wheelLockedAt = Date.now();
-        haptic('light');
-        closeStats();
-    }
+    if (Math.abs(statsWheelAccumY) < 85) return;
+
+    statsWheelAccumY = 0;
+    wheelLocked = true;
+    wheelLockedAt = Date.now();
+    haptic('light');
+    closeStats();
 }, { passive: false });
 
 function hideLayerInstantly(el) {
