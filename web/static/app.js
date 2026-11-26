@@ -1907,33 +1907,12 @@ addTracksSaveBtn.addEventListener('click', async () => {
     }
 });
 
-const appSplashEl = document.getElementById('appSplash');
-const splashMorphPath = document.getElementById('splashMorphPath');
-const splashStartedAt = performance.now();
-if (splashMorphPath && !userSettings.reducedMotion) {
-    startMorphLoader(splashMorphPath, 620);
-}
-
-function dismissAppSplash() {
-    if (!appSplashEl || appSplashEl.dataset.dismissed === '1') return;
-    appSplashEl.dataset.dismissed = '1';
-    const minDuration = userSettings.reducedMotion ? 0 : 1250;
-    const remaining = Math.max(0, minDuration - (performance.now() - splashStartedAt));
-    setTimeout(() => {
-        appSplashEl.classList.add('hiding');
-        setTimeout(() => {
-            stopMorphLoader();
-            if (appSplashEl.parentNode) appSplashEl.parentNode.removeChild(appSplashEl);
-        }, 380);
-    }, remaining);
-}
-
 async function loadPlaylist() {
     if (!initData) {
         trackListEl.innerHTML = `<div class="empty-state">Откройте плейлист через кнопку в Telegram-боте.</div>`;
-        dismissAppSplash();
         return;
     }
+    renderSkeleton();
     try {
         const [resTracks, resPlaylists] = await Promise.all([
             fetch('/api/playlist', { headers: authHeaders() }),
@@ -1954,8 +1933,6 @@ async function loadPlaylist() {
         restoreLastTrackIfEnabled();
     } catch (err) {
         trackListEl.innerHTML = `<div class="empty-state">Ошибка загрузки плейлиста</div>`;
-    } finally {
-        dismissAppSplash();
     }
 }
 
