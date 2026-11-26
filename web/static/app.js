@@ -1323,11 +1323,22 @@ function endTabSwipe() {
 document.addEventListener('touchend', endTabSwipe);
 document.addEventListener('touchcancel', endTabSwipe);
 
-// ===== Two-finger Touchpad Horizontal Swipe (PC: Playlists & Fullscreen Player) =====
+// ===== Two-finger Touchpad Swipes (PC: Playlists, Fullscreen Track Skip & Swipe-Down to Close) =====
 let wheelAccumX = 0;
+let wheelAccumY = 0;
 let wheelLocked = false;
 let wheelLockedAt = 0;
 let wheelResetTimer = null;
+
+function resetWheelVerticalPull() {
+    if (wheelAccumY !== 0) {
+        wheelAccumY = 0;
+        if (isFullPlayerOpen) {
+            fullPlayer.classList.remove('dragging');
+            fullPlayer.style.transform = '';
+        }
+    }
+}
 
 window.addEventListener('wheel', (e) => {
     if (e.ctrlKey) return;
@@ -1336,6 +1347,49 @@ window.addEventListener('wheel', (e) => {
 
     const absX = Math.abs(e.deltaX);
     const absY = Math.abs(e.deltaY);
+
+    // 1) Свайп двумя пальцами вниз в полноэкранном плеере -> плавно свернуть плеер
+    if (isFullPlayerOpen && absY >= 4 && absY > absX * 1.35) {
+        if (e.cancelable) e.preventDefault();
+
+        if (wheelResetTimer) clearTimeout(wheelResetTimer);
+        wheelResetTimer = setTimeout(() => {
+            wheelAccumX = 0;
+            wheelLocked = false;
+            wheelResetTimer = null;
+            resetWheelVerticalPull();
+        }, 160);
+
+        if (wheelLocked) {
+            if (Date.now() - wheelLockedAt < 520) return;
+            wheelLocked = false;
+            wheelAccumY = 0;
+        }
+
+        // На тачпаде с natural scrolling движение двух пальцев вниз даёт deltaY < 0
+        if (e.deltaY < 0) {
+            wheelAccumY += -e.deltaY;
+            const pullY = Math.min(180, wheelAccumY * 0.72);
+            fullPlayer.classList.add('dragging');
+            fullPlayer.style.transform = `translate3d(0, ${pullY}px, 0)`;
+
+            if (pullY >= 78) {
+                wheelAccumY = 0;
+                wheelLocked = true;
+                wheelLockedAt = Date.now();
+                haptic('light');
+                closeFullPlayer();
+            }
+        } else if (wheelAccumY > 0) {
+            wheelAccumY = Math.max(0, wheelAccumY - e.deltaY);
+            const pullY = Math.min(180, wheelAccumY * 0.72);
+            fullPlayer.style.transform = pullY > 0 ? `translate3d(0, ${pullY}px, 0)` : '';
+            if (pullY === 0) fullPlayer.classList.remove('dragging');
+        }
+        return;
+    }
+
+    // 2) Горизонтальный свайп двумя пальцами (переключение плейлистов / треков)
     if (absX < 4 || absX <= absY * 1.35) return;
 
     if (isFullPlayerOpen) {
@@ -1351,6 +1405,7 @@ window.addEventListener('wheel', (e) => {
         wheelAccumX = 0;
         wheelLocked = false;
         wheelResetTimer = null;
+        resetWheelVerticalPull();
     }, 180);
 
     if (wheelLocked) {
