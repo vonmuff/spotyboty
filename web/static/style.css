@@ -2250,6 +2250,8 @@ body.settings-open {
     max-width: 480px;
     max-height: 85vh;
     overflow-y: auto;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
     overscroll-behavior: contain;
     touch-action: pan-y;
     background: var(--bg-main);
@@ -2262,6 +2264,12 @@ body.settings-open {
     transform: translate3d(0, 100%, 0);
     transition: transform 0.46s cubic-bezier(0.22, 1, 0.36, 1);
     will-change: transform;
+}
+
+.settings-sheet::-webkit-scrollbar {
+    display: none;
+    width: 0;
+    height: 0;
 }
 
 .settings-backdrop.open .settings-sheet {
