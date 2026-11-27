@@ -25,6 +25,7 @@ const DEFAULT_SETTINGS = {
     ambientMotion: 'medium', // 'off' | 'soft' | 'medium' | 'vivid'
     coverHalo: true,
     playbackRate: 1,
+    volume: 1,
     audioFade: true,
     autoNext: true,
     equalizer: true,
@@ -323,9 +324,14 @@ const playerCover = document.getElementById('playerCover');
 const playPauseBtn = document.getElementById('playPauseBtn');
 const playIcon = document.getElementById('playIcon');
 const pauseIcon = document.getElementById('pauseIcon');
+const shuffleBtn = document.getElementById('shuffleBtn');
 const prevBtn = document.getElementById('prevBtn');
 const nextBtn = document.getElementById('nextBtn');
 const repeatBtn = document.getElementById('repeatBtn');
+const volumeMuteBtn = document.getElementById('volumeMuteBtn');
+const volHighIcon = document.getElementById('volHighIcon');
+const volMuteIcon = document.getElementById('volMuteIcon');
+const volumeSlider = document.getElementById('volumeSlider');
 const playerTrackTrigger = document.getElementById('playerTrackTrigger');
 const seekWrapper = document.getElementById('seekWrapper');
 const seekFill = document.getElementById('seekFill');
@@ -437,36 +443,96 @@ function fadeAudioVolume(fromVol, toVol, durationMs, onDone) {
     audioFadeRafId = requestAnimationFrame(step);
 }
 
+let isMuted = false;
+let preMuteVolume = 1;
+
+function getTargetVolume() {
+    if (isMuted) return 0;
+    const v = Number(userSettings.volume);
+    return Number.isFinite(v) ? Math.max(0, Math.min(1, v)) : 1;
+}
+
+function applyVolumeUI(vol) {
+    const clamped = Math.max(0, Math.min(1, vol));
+    if (volumeSlider) {
+        volumeSlider.value = String(clamped);
+        volumeSlider.style.setProperty('--vol-pct', `${Math.round(clamped * 100)}%`);
+    }
+    const muted = clamped <= 0.001;
+    if (volHighIcon) volHighIcon.style.display = muted ? 'none' : 'block';
+    if (volMuteIcon) volMuteIcon.style.display = muted ? 'block' : 'none';
+}
+
+function setUserVolume(vol, save = true) {
+    const clamped = Math.max(0, Math.min(1, Number(vol) || 0));
+    isMuted = clamped <= 0.001;
+    if (!isMuted) {
+        userSettings.volume = clamped;
+        preMuteVolume = clamped;
+    } else {
+        userSettings.volume = 0;
+    }
+    cancelAudioFade();
+    try { audio.volume = clamped; } catch (e) {}
+    applyVolumeUI(clamped);
+    if (save) saveUserSettings();
+}
+
+if (volumeSlider) {
+    volumeSlider.addEventListener('input', () => {
+        setUserVolume(parseFloat(volumeSlider.value), false);
+    });
+    volumeSlider.addEventListener('change', () => {
+        setUserVolume(parseFloat(volumeSlider.value), true);
+    });
+}
+
+if (volumeMuteBtn) {
+    volumeMuteBtn.addEventListener('click', () => {
+        haptic('light');
+        if (isMuted || getTargetVolume() <= 0.001) {
+            const restore = preMuteVolume > 0.05 ? preMuteVolume : 0.8;
+            setUserVolume(restore, true);
+        } else {
+            preMuteVolume = getTargetVolume();
+            setUserVolume(0, true);
+        }
+    });
+}
+
 function playWithFade() {
     cancelAudioFade();
     audio.playbackRate = Number(userSettings.playbackRate) || 1;
-    if (!userSettings.audioFade) {
-        try { audio.volume = 1; } catch (e) {}
+    const targetVol = getTargetVolume();
+    if (!userSettings.audioFade || targetVol <= 0.05) {
+        try { audio.volume = targetVol; } catch (e) {}
         audio.play().catch(() => {});
         return;
     }
-    try { audio.volume = 0.05; } catch (e) {}
+    const startVol = Math.min(0.05, targetVol);
+    try { audio.volume = startVol; } catch (e) {}
     const p = audio.play();
     if (p && typeof p.then === 'function') {
-        p.then(() => fadeAudioVolume(0.05, 1, 240)).catch(() => {
-            try { audio.volume = 1; } catch (e) {}
+        p.then(() => fadeAudioVolume(startVol, targetVol, 240)).catch(() => {
+            try { audio.volume = targetVol; } catch (e) {}
         });
     } else {
-        fadeAudioVolume(0.05, 1, 240);
+        fadeAudioVolume(startVol, targetVol, 240);
     }
 }
 
 function pauseWithFade() {
     cancelAudioFade();
+    const targetVol = getTargetVolume();
     if (!userSettings.audioFade || audio.paused) {
         audio.pause();
-        try { audio.volume = 1; } catch (e) {}
+        try { audio.volume = targetVol; } catch (e) {}
         return;
     }
-    const startVol = typeof audio.volume === 'number' ? audio.volume : 1;
+    const startVol = typeof audio.volume === 'number' ? audio.volume : targetVol;
     fadeAudioVolume(startVol, 0, 220, () => {
         audio.pause();
-        try { audio.volume = 1; } catch (e) {}
+        try { audio.volume = targetVol; } catch (e) {}
     });
 }
 
@@ -1009,6 +1075,13 @@ settingsResetBtn.addEventListener('click', () => {
 
 applyUserSettings();
 applyPlaybackRate();
+{
+    const initVol = getTargetVolume();
+    isMuted = initVol <= 0.001;
+    if (initVol > 0.05) preMuteVolume = initVol;
+    try { audio.volume = initVol; } catch (e) {}
+    applyVolumeUI(initVol);
+}
 
 let progressRafId = null;
 let progressResetTimer = null;
@@ -3877,21 +3950,22 @@ function playTrackById(fileId, shouldScroll = false) {
         audio.src = track.stream_url;
         applyPlaybackRate();
         saveLastTrackState(true);
+        const targetVol = getTargetVolume();
         const playPromise = audio.play();
         if (playPromise && typeof playPromise.then === 'function') {
             playPromise.then(() => {
                 if (switchSeq !== audioSwitchSeq) return;
-                fadeAudioVolume(0, 1, userSettings.audioFade ? 120 : 35);
+                fadeAudioVolume(0, targetVol, userSettings.audioFade ? 120 : 35);
                 scheduleNextTrackPrefetch();
             }).catch((err) => {
                 if (switchSeq !== audioSwitchSeq) return;
                 if (err && err.name === 'AbortError') return;
                 isSwitchingTrack = false;
-                try { audio.volume = 1; } catch (e) {}
+                try { audio.volume = targetVol; } catch (e) {}
                 updatePlayButtons(false);
             });
         } else {
-            fadeAudioVolume(0, 1, 35);
+            fadeAudioVolume(0, targetVol, 35);
             scheduleNextTrackPrefetch();
         }
     };
@@ -3956,6 +4030,7 @@ function toggleRepeat() {
 function toggleShuffle() {
     haptic('light');
     isShuffle = !isShuffle;
+    if (shuffleBtn) shuffleBtn.classList.toggle('active-mode', isShuffle);
     fpShuffleBtn.classList.toggle('active-mode', isShuffle);
     if (isShuffle) {
         rebuildShuffleQueue();
@@ -4002,6 +4077,7 @@ if ('mediaSession' in navigator) {
     });
 }
 
+if (shuffleBtn) shuffleBtn.addEventListener('click', toggleShuffle);
 playPauseBtn.addEventListener('click', togglePlayPause);
 fpPlayPauseBtn.addEventListener('click', togglePlayPause);
 

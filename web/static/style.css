@@ -1060,31 +1060,124 @@ body.has-player .undo-toast {
 .player-controls {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: 4px;
+    flex-shrink: 0;
 }
 
 .ctrl-btn {
     background: none;
     border: none;
     color: var(--text-primary);
-    width: 38px;
-    height: 38px;
+    width: 34px;
+    height: 34px;
     border-radius: 50%;
     display: flex;
     align-items: center;
     justify-content: center;
     cursor: pointer;
+    transition: color 0.15s ease, background 0.15s ease;
+}
+
+.ctrl-btn:hover {
+    background: var(--surface-chip);
 }
 
 .ctrl-btn.play-pause {
     background: var(--accent);
     color: #000;
-    width: 44px;
-    height: 44px;
+    width: 40px;
+    height: 40px;
+}
+
+.ctrl-btn.play-pause:hover {
+    background: var(--accent-hover);
 }
 
 .ctrl-btn.active-mode {
     color: var(--accent);
+}
+
+/* Ползунок громкости — только на ПК (на телефонах скрыт) */
+.volume-control {
+    display: none;
+    align-items: center;
+    gap: 4px;
+    margin-left: 4px;
+    padding-left: 6px;
+    border-left: 1px solid var(--border-subtle);
+}
+
+@media (hover: hover) and (pointer: fine) {
+    .volume-control {
+        display: flex;
+    }
+}
+
+.volume-btn {
+    width: 30px;
+    height: 30px;
+    color: var(--text-secondary);
+}
+
+.volume-btn:hover {
+    color: var(--text-primary);
+}
+
+.volume-slider {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 64px;
+    height: 4px;
+    border-radius: 999px;
+    background: linear-gradient(
+        90deg,
+        var(--accent) 0%,
+        var(--accent) var(--vol-pct, 100%),
+        var(--track-bg) var(--vol-pct, 100%),
+        var(--track-bg) 100%
+    );
+    outline: none;
+    cursor: pointer;
+}
+
+.volume-slider::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: var(--thumb-bg);
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35);
+    cursor: pointer;
+    transition: transform 0.12s ease;
+}
+
+.volume-slider::-webkit-slider-thumb:hover {
+    transform: scale(1.18);
+}
+
+.volume-slider::-moz-range-thumb {
+    width: 12px;
+    height: 12px;
+    border: none;
+    border-radius: 50%;
+    background: var(--thumb-bg);
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35);
+    cursor: pointer;
+}
+
+@media (max-width: 440px) {
+    .player-controls {
+        gap: 2px;
+    }
+    .ctrl-btn {
+        width: 31px;
+        height: 31px;
+    }
+    .ctrl-btn.play-pause {
+        width: 38px;
+        height: 38px;
+    }
 }
 
 .player-track {
