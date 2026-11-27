@@ -382,6 +382,43 @@ const trackListEl = document.getElementById('trackList');
 const trackCountEl = document.getElementById('trackCount');
 const searchInput = document.getElementById('searchInput');
 const mobileSearchSlot = document.getElementById('mobileSearchSlot');
+const searchToggleBtn = document.getElementById('searchToggleBtn');
+const desktopSearchWrap = document.getElementById('desktopSearchWrap');
+const searchCloseBtn = document.getElementById('searchCloseBtn');
+let isDesktopSearchOpen = false;
+
+document.body.classList.toggle('is-desktop', IS_DESKTOP_TG);
+
+function openDesktopSearch() {
+    if (!IS_DESKTOP_TG || !desktopSearchWrap) return;
+    isDesktopSearchOpen = true;
+    desktopSearchWrap.classList.add('open');
+    if (searchToggleBtn) searchToggleBtn.classList.add('active');
+    setTimeout(() => searchInput.focus(), 60);
+}
+
+function closeDesktopSearch() {
+    if (!IS_DESKTOP_TG || !desktopSearchWrap || !isDesktopSearchOpen) return;
+    isDesktopSearchOpen = false;
+    desktopSearchWrap.classList.remove('open');
+    if (searchToggleBtn) searchToggleBtn.classList.remove('active');
+    searchInput.blur();
+    if (searchInput.value) {
+        searchInput.value = '';
+        applySearchFilter();
+    }
+}
+
+if (searchToggleBtn) {
+    searchToggleBtn.addEventListener('click', () => {
+        if (isDesktopSearchOpen) closeDesktopSearch();
+        else openDesktopSearch();
+    });
+}
+if (searchCloseBtn) {
+    searchCloseBtn.addEventListener('click', closeDesktopSearch);
+}
+
 if (!IS_DESKTOP_TG && mobileSearchSlot && searchInput) {
     mobileSearchSlot.appendChild(searchInput);
     mobileSearchSlot.classList.add('active');
@@ -2760,6 +2797,15 @@ document.addEventListener('keydown', (e) => {
         else if (isStatsOpen) closeStats();
         else if (isSettingsOpen) closeSettings();
         else if (isFullPlayerOpen) closeFullPlayer();
+        else if (isDesktopSearchOpen) closeDesktopSearch();
+    } else if (IS_DESKTOP_TG && !isFullPlayerOpen && !isSettingsOpen && !isStatsOpen && !isPlModalOpen && !isAddTracksModalOpen) {
+        if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'f') {
+            e.preventDefault();
+            openDesktopSearch();
+        } else if (e.key === '/' && document.activeElement?.tagName !== 'INPUT') {
+            e.preventDefault();
+            openDesktopSearch();
+        }
     }
 });
 

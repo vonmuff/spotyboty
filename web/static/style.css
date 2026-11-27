@@ -167,6 +167,68 @@ body.has-player .scroll-top-btn {
     border-color: var(--accent);
 }
 
+.desktop-search-btn {
+    display: none;
+}
+
+body.is-desktop .desktop-search-btn {
+    display: flex;
+}
+
+.desktop-search-btn.active {
+    color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 16%, transparent);
+}
+
+.desktop-search-wrap {
+    display: none;
+    position: relative;
+}
+
+body.is-desktop .desktop-search-wrap {
+    display: block;
+    max-height: 0;
+    opacity: 0;
+    overflow: hidden;
+    margin-bottom: 0;
+    pointer-events: none;
+    transition: max-height 0.24s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.2s ease, margin 0.24s ease;
+}
+
+body.is-desktop .desktop-search-wrap.open {
+    max-height: 52px;
+    opacity: 1;
+    margin-bottom: 2px;
+    pointer-events: auto;
+}
+
+body.is-desktop .desktop-search-wrap .search-box {
+    padding-right: 36px;
+}
+
+.search-close-btn {
+    position: absolute;
+    right: 6px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    border: none;
+    background: transparent;
+    color: var(--text-secondary);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: background 0.15s ease, color 0.15s ease;
+}
+
+.search-close-btn:hover {
+    background: var(--surface-chip);
+    color: var(--text-primary);
+}
+
 .mobile-search-slot {
     display: none;
     padding: 12px 16px 0;
