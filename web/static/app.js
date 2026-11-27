@@ -1338,9 +1338,31 @@ let wheelAccumY = 0;
 let wheelLocked = false;
 let wheelLockedAt = 0;
 let wheelResetTimer = null;
+let wheelSuppressUntil = 0;
+let wheelSuppressHardEnd = 0;
+let wheelLastEventAt = 0;
+
+function suppressTouchpadMomentum(durationMs = 550) {
+    const now = Date.now();
+    wheelSuppressUntil = now + durationMs;
+    wheelSuppressHardEnd = now + 1100;
+    wheelLastEventAt = now;
+}
 
 window.addEventListener('wheel', (e) => {
     if (e.ctrlKey) return;
+
+    const now = Date.now();
+    if (now < wheelSuppressUntil) {
+        if (e.cancelable) e.preventDefault();
+        // Пока инерционный «хвост» тачпада идёт непрерывным потоком (< 90 мс между тиками), гасим его полностью
+        if (now - wheelLastEventAt < 90 && now < wheelSuppressHardEnd) {
+            wheelSuppressUntil = Math.min(wheelSuppressHardEnd, now + 260);
+        }
+        wheelLastEventAt = now;
+        return;
+    }
+
     if (isSettingsOpen || isStatsOpen || isPlActionsOpen || isPlModalOpen || isAddTracksModalOpen || isTrackPlaylistsModalOpen || isTrackActionsOpen) return;
     if (!isFullPlayerOpen && e.target.closest('.playlist-tabs')) return;
 
@@ -1374,6 +1396,7 @@ window.addEventListener('wheel', (e) => {
         wheelAccumY = 0;
         wheelLocked = true;
         wheelLockedAt = Date.now();
+        suppressTouchpadMomentum(550);
         haptic('light');
         if (isFullPlayerOpen) {
             closeFullPlayer();
@@ -2786,6 +2809,7 @@ statsBackdrop.addEventListener('wheel', (e) => {
     statsWheelAccumY = 0;
     wheelLocked = true;
     wheelLockedAt = Date.now();
+    suppressTouchpadMomentum(550);
     haptic('light');
     closeStats();
 }, { passive: false });
