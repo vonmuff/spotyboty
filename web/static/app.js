@@ -84,37 +84,90 @@ function rgbToHex(r, g, b) {
     return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
 }
 
-function getPlayerHeaderTintHex(fpTheme) {
-    const [r, g, b] = (currentAmbientPalette && currentAmbientPalette[0]) || DEFAULT_AMBIENT_PALETTE[0];
-    if (fpTheme === 'light') {
-        // Мягкий пастельный оттенок под светлый полноэкранный плеер
-        const mix = 0.2;
-        return rgbToHex(245 * (1 - mix) + r * mix, 246 * (1 - mix) + g * mix, 250 * (1 - mix) + b * mix);
+function parseHexColor(hex) {
+    if (!hex || typeof hex !== 'string') return null;
+    const clean = hex.trim().replace(/^#/, '');
+    if (clean.length === 3) {
+        return [
+            parseInt(clean[0] + clean[0], 16),
+            parseInt(clean[1] + clean[1], 16),
+            parseInt(clean[2] + clean[2], 16),
+        ];
     }
-    // Глубокий приглушённый оттенок в цвет верхней части обложки под тёмный плеер
-    const mix = 0.28;
-    return rgbToHex(15 * (1 - mix) + r * mix, 15 * (1 - mix) + g * mix, 19 * (1 - mix) + b * mix);
+    if (clean.length === 6) {
+        const r = parseInt(clean.slice(0, 2), 16);
+        const g = parseInt(clean.slice(2, 4), 16);
+        const b = parseInt(clean.slice(4, 6), 16);
+        if (!Number.isNaN(r) && !Number.isNaN(g) && !Number.isNaN(b)) return [r, g, b];
+    }
+    return null;
 }
 
-function applyTelegramTheme() {
+let tgHeaderMorphRafId = null;
+let currentTgHeaderRgb = null;
+
+function setTelegramHeaderColorSmooth(targetHex, instant = false) {
+    if (tgHeaderMorphRafId !== null) {
+        cancelAnimationFrame(tgHeaderMorphRafId);
+        tgHeaderMorphRafId = null;
+    }
+    const targetRgb = parseHexColor(targetHex);
+    if (!targetRgb || instant || userSettings.reducedMotion || !currentTgHeaderRgb) {
+        currentTgHeaderRgb = targetRgb;
+        try {
+            tg.setHeaderColor?.(targetHex);
+            tg.setBackgroundColor?.(targetHex);
+        } catch (e) {}
+        return;
+    }
+
+    const startRgb = [...currentTgHeaderRgb];
+    if (startRgb[0] === targetRgb[0] && startRgb[1] === targetRgb[1] && startRgb[2] === targetRgb[2]) {
+        return;
+    }
+
+    const durationMs = 340;
+    const startTime = performance.now();
+    let lastTick = 0;
+
+    const step = (now) => {
+        const t = Math.min(1, (now - startTime) / durationMs);
+        const eased = 1 - Math.pow(1 - t, 3);
+        const cur = [
+            Math.round(startRgb[0] + (targetRgb[0] - startRgb[0]) * eased),
+            Math.round(startRgb[1] + (targetRgb[1] - startRgb[1]) * eased),
+            Math.round(startRgb[2] + (targetRgb[2] - startRgb[2]) * eased),
+        ];
+        currentTgHeaderRgb = cur;
+
+        if (t >= 1 || now - lastTick >= 32) {
+            lastTick = now;
+            const hex = rgbToHex(cur[0], cur[1], cur[2]);
+            try {
+                tg.setHeaderColor?.(hex);
+                tg.setBackgroundColor?.(hex);
+            } catch (e) {}
+        }
+
+        if (t < 1) {
+            tgHeaderMorphRafId = requestAnimationFrame(step);
+        } else {
+            tgHeaderMorphRafId = null;
+            currentTgHeaderRgb = [...targetRgb];
+        }
+    };
+
+    tgHeaderMorphRafId = requestAnimationFrame(step);
+}
+
+function applyTelegramTheme(instant = false) {
     const scheme = tg.colorScheme || 'dark';
     const fpTheme = getEffectiveFullPlayerTheme();
     document.documentElement.dataset.theme = scheme;
     document.documentElement.dataset.fpTheme = fpTheme;
     const bgColor = tg.themeParams?.bg_color || (scheme === 'light' ? '#ffffff' : '#0f0f13');
-    try {
-        if (isFullPlayerOpen) {
-            const useTint = Boolean(userSettings.ambientBg) && !userSettings.reducedMotion;
-            const targetColor = useTint
-                ? getPlayerHeaderTintHex(fpTheme)
-                : (fpTheme === 'light' ? bgColor : '#0f0f13');
-            tg.setHeaderColor?.(targetColor);
-            tg.setBackgroundColor?.(targetColor);
-        } else {
-            tg.setHeaderColor?.(bgColor);
-            tg.setBackgroundColor?.(bgColor);
-        }
-    } catch (e) {}
+    const targetColor = (isFullPlayerOpen && fpTheme !== 'light') ? '#0f0f13' : bgColor;
+    setTelegramHeaderColorSmooth(targetColor, instant);
 }
 
 function applyUserSettings() {
@@ -3012,10 +3065,6 @@ function applyAmbientPalette(targetPalette, instant = false) {
     // CSS-переменные обновляем ОДИН раз за трек, чтобы мобильный GPU не перерисовывал
     // градиентные текстуры по 20–40 раз за время свайпа (это и вызывало глитчи/разрывы)
     writeAmbientPaletteVars(normalizedTarget);
-    if (isFullPlayerOpen) {
-        currentAmbientPalette = normalizedTarget;
-        applyTelegramTheme();
-    }
 
     // Для Canvas «Боке» можно безопасно и плавно морфить цвета (без перерисовки CSS-слоёв)
     if (instant || userSettings.reducedMotion || !isFullPlayerOpen || userSettings.ambientStyle !== 'bokeh') {
