@@ -2124,7 +2124,6 @@ body.reduced-motion .fp-art-halo {
 
 /* ===== Settings Bottom Sheet ===== */
 body.settings-open {
-    overflow: hidden;
     touch-action: none;
 }
 
@@ -2133,8 +2132,6 @@ body.settings-open {
     inset: 0;
     z-index: 100;
     background: rgba(0, 0, 0, 0);
-    backdrop-filter: none;
-    -webkit-backdrop-filter: none;
     display: flex;
     align-items: flex-end;
     justify-content: center;
@@ -2148,9 +2145,7 @@ body.settings-open {
 
 .settings-backdrop.open {
     opacity: 1;
-    background: rgba(0, 0, 0, 0.56);
-    backdrop-filter: blur(6px);
-    -webkit-backdrop-filter: blur(6px);
+    background: rgba(0, 0, 0, 0.58);
     visibility: visible;
     pointer-events: auto;
     transition: background 0.34s ease, visibility 0s linear 0s;
