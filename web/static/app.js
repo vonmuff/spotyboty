@@ -2787,7 +2787,7 @@ try {
     });
 } catch (e) {}
 
-document.addEventListener('keydown', (e) => {
+window.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') {
         if (isTrackActionsOpen) closeTrackActions();
         else if (isTrackPlaylistsModalOpen) closeTrackPlaylistsModal();
@@ -2799,15 +2799,20 @@ document.addEventListener('keydown', (e) => {
         else if (isFullPlayerOpen) closeFullPlayer();
         else if (isDesktopSearchOpen) closeDesktopSearch();
     } else if (IS_DESKTOP_TG && !isFullPlayerOpen && !isSettingsOpen && !isStatsOpen && !isPlModalOpen && !isAddTracksModalOpen) {
-        if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'f') {
+        const keyLower = (e.key || '').toLowerCase();
+        const isCtrlF = (e.ctrlKey || e.metaKey) && !e.altKey && (e.code === 'KeyF' || keyLower === 'f' || keyLower === 'а');
+        if (isCtrlF) {
             e.preventDefault();
-            openDesktopSearch();
-        } else if (e.key === '/' && document.activeElement?.tagName !== 'INPUT') {
+            e.stopPropagation();
+            if (e.repeat) return;
+            if (isDesktopSearchOpen) closeDesktopSearch();
+            else openDesktopSearch();
+        } else if (e.key === '/' && !e.ctrlKey && !e.metaKey && !e.altKey && document.activeElement?.tagName !== 'INPUT' && document.activeElement?.tagName !== 'TEXTAREA') {
             e.preventDefault();
             openDesktopSearch();
         }
     }
-});
+}, true);
 
 // ===== Listening Stats Tracking & Wrapped Card =====
 function pauseListenSession() {
