@@ -81,6 +81,23 @@ const DEFAULT_AMBIENT_PALETTE = [
 let currentAmbientPalette = DEFAULT_AMBIENT_PALETTE.map(c => [...c]);
 
 let lastAppliedTgHeaderColor = null;
+const IS_DESKTOP_TG = ['tdesktop', 'macos', 'web', 'weba', 'webk'].includes(String(tg.platform || '').toLowerCase());
+let tgBackButtonVisible = false;
+
+function syncTelegramBackButton() {
+    if (IS_DESKTOP_TG) return;
+    const shouldShow = Boolean(
+        isFullPlayerOpen || isSettingsOpen || isStatsOpen ||
+        isPlActionsOpen || isPlModalOpen || isAddTracksModalOpen ||
+        isTrackPlaylistsModalOpen || isTrackActionsOpen
+    );
+    if (shouldShow === tgBackButtonVisible) return;
+    tgBackButtonVisible = shouldShow;
+    try {
+        if (shouldShow) tg.BackButton?.show();
+        else tg.BackButton?.hide();
+    } catch (e) {}
+}
 
 function applyTelegramTheme() {
     const scheme = tg.colorScheme || 'dark';
@@ -592,9 +609,7 @@ function openSettings() {
     settingsBackdrop.classList.add('open');
     settingsBackdrop.setAttribute('aria-hidden', 'false');
     haptic('light');
-    try {
-        tg.BackButton?.show();
-    } catch (e) {}
+    syncTelegramBackButton();
 }
 
 function closeSettings() {
@@ -605,11 +620,7 @@ function closeSettings() {
     document.body.classList.remove('settings-open');
     settingsBackdrop.classList.remove('open');
     settingsBackdrop.setAttribute('aria-hidden', 'true');
-    if (!isFullPlayerOpen) {
-        try {
-            tg.BackButton?.hide();
-        } catch (e) {}
-    }
+    syncTelegramBackButton();
 }
 
 settingsBtn.addEventListener('click', openSettings);
@@ -1227,7 +1238,7 @@ function openPlaylistActions() {
     plActionsBackdrop.classList.add('open');
     plActionsBackdrop.setAttribute('aria-hidden', 'false');
     haptic('light');
-    try { tg.BackButton?.show(); } catch (e) {}
+    syncTelegramBackButton();
 }
 
 function closePlaylistActions() {
@@ -1238,9 +1249,7 @@ function closePlaylistActions() {
     if (!isSettingsOpen && !isPlModalOpen && !isAddTracksModalOpen && !isTrackPlaylistsModalOpen) {
         document.body.classList.remove('settings-open');
     }
-    if (!isFullPlayerOpen && !isSettingsOpen && !isPlModalOpen && !isAddTracksModalOpen && !isTrackPlaylistsModalOpen) {
-        try { tg.BackButton?.hide(); } catch (e) {}
-    }
+    syncTelegramBackButton();
 }
 
 // ===== Drag & Drop Reordering of Playlist Tabs (Long-press) =====
@@ -1671,7 +1680,7 @@ function openPlaylistModal(pl = null) {
     plModalBackdrop.setAttribute('aria-hidden', 'false');
     haptic('light');
     setTimeout(() => plNameInput.focus(), 200);
-    try { tg.BackButton?.show(); } catch (e) {}
+    syncTelegramBackButton();
 }
 
 function closePlaylistModal() {
@@ -1683,9 +1692,7 @@ function closePlaylistModal() {
     if (!isSettingsOpen && !isAddTracksModalOpen && !isPlActionsOpen && !isTrackPlaylistsModalOpen) {
         document.body.classList.remove('settings-open');
     }
-    if (!isFullPlayerOpen && !isSettingsOpen && !isAddTracksModalOpen && !isPlActionsOpen && !isTrackPlaylistsModalOpen) {
-        try { tg.BackButton?.hide(); } catch (e) {}
-    }
+    syncTelegramBackButton();
 }
 
 plEmojiPicker.addEventListener('click', (e) => {
@@ -1848,7 +1855,7 @@ function openAddTracksModal() {
     addTracksBackdrop.classList.add('open');
     addTracksBackdrop.setAttribute('aria-hidden', 'false');
     haptic('light');
-    try { tg.BackButton?.show(); } catch (e) {}
+    syncTelegramBackButton();
 }
 
 function closeAddTracksModal() {
@@ -1859,9 +1866,7 @@ function closeAddTracksModal() {
     if (!isSettingsOpen && !isPlModalOpen && !isPlActionsOpen && !isTrackPlaylistsModalOpen) {
         document.body.classList.remove('settings-open');
     }
-    if (!isFullPlayerOpen && !isSettingsOpen && !isPlModalOpen && !isPlActionsOpen && !isTrackPlaylistsModalOpen) {
-        try { tg.BackButton?.hide(); } catch (e) {}
-    }
+    syncTelegramBackButton();
 }
 
 // ===== Quick "Add Track to Playlist" Modal (Swipe Right) =====
@@ -1927,7 +1932,7 @@ function openTrackPlaylistsModal(fileId) {
     document.body.classList.add('settings-open');
     trackPlaylistsBackdrop.classList.add('open');
     trackPlaylistsBackdrop.setAttribute('aria-hidden', 'false');
-    try { tg.BackButton?.show(); } catch (e) {}
+    syncTelegramBackButton();
 }
 
 function closeTrackPlaylistsModal() {
@@ -1939,9 +1944,7 @@ function closeTrackPlaylistsModal() {
     if (!isSettingsOpen && !isPlModalOpen && !isAddTracksModalOpen && !isPlActionsOpen) {
         document.body.classList.remove('settings-open');
     }
-    if (!isFullPlayerOpen && !isSettingsOpen && !isPlModalOpen && !isAddTracksModalOpen && !isPlActionsOpen) {
-        try { tg.BackButton?.hide(); } catch (e) {}
-    }
+    syncTelegramBackButton();
 }
 
 trackPlaylistsCloseBtn.addEventListener('click', closeTrackPlaylistsModal);
@@ -1969,7 +1972,7 @@ function openTrackActions(fileId) {
     trackActionsBackdrop.classList.add('open');
     trackActionsBackdrop.setAttribute('aria-hidden', 'false');
     haptic('medium');
-    try { tg.BackButton?.show(); } catch (e) {}
+    syncTelegramBackButton();
 }
 
 function closeTrackActions() {
@@ -1981,9 +1984,7 @@ function closeTrackActions() {
     if (!isSettingsOpen && !isPlModalOpen && !isAddTracksModalOpen && !isPlActionsOpen && !isTrackPlaylistsModalOpen) {
         document.body.classList.remove('settings-open');
     }
-    if (!isFullPlayerOpen && !isSettingsOpen && !isPlModalOpen && !isAddTracksModalOpen && !isPlActionsOpen && !isTrackPlaylistsModalOpen) {
-        try { tg.BackButton?.hide(); } catch (e) {}
-    }
+    syncTelegramBackButton();
 }
 
 trackActionsCloseBtn.addEventListener('click', closeTrackActions);
@@ -2551,9 +2552,7 @@ function openFullPlayer() {
     });
 
     haptic('light');
-    try {
-        tg.BackButton?.show();
-    } catch (e) {}
+    syncTelegramBackButton();
 
     // Выполняем ПОСЛЕ полного завершения 440ms GPU-выезда (без overflow: hidden на body — 0 сдвига ширины)
     fpOpenTimer = setTimeout(() => {
@@ -2577,10 +2576,7 @@ function closeFullPlayer() {
     fullPlayer.classList.remove('open', 'dragging');
     fullPlayer.setAttribute('aria-hidden', 'true');
     applyTelegramTheme();
-
-    try {
-        tg.BackButton?.hide();
-    } catch (e) {}
+    syncTelegramBackButton();
 
     setTimeout(() => {
         if (isFullPlayerOpen) return;
@@ -2849,7 +2845,7 @@ function openStats() {
     statsBackdrop.classList.add('open');
     statsBackdrop.setAttribute('aria-hidden', 'false');
     haptic('light');
-    try { tg.BackButton?.show(); } catch (e) {}
+    syncTelegramBackButton();
     loadAndRenderStats(statsPeriod, true);
     // Фоном сразу прогреваем остальные 2 периода, чтобы переключение вкладок было мгновенным (0 мс) без блика
     ['all', '30d', '7d'].forEach((p) => {
@@ -2869,9 +2865,7 @@ function closeStats() {
     if (!isSettingsOpen && !isPlModalOpen && !isAddTracksModalOpen && !isPlActionsOpen && !isTrackPlaylistsModalOpen && !isTrackActionsOpen) {
         document.body.classList.remove('settings-open');
     }
-    if (!isFullPlayerOpen && !isSettingsOpen && !isPlModalOpen && !isAddTracksModalOpen && !isPlActionsOpen && !isTrackPlaylistsModalOpen && !isTrackActionsOpen) {
-        try { tg.BackButton?.hide(); } catch (e) {}
-    }
+    syncTelegramBackButton();
 }
 
 statsBtn.addEventListener('click', openStats);
