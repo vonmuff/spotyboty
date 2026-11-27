@@ -615,9 +615,15 @@ function endSettingsSwipe() {
 settingsSheet.addEventListener('touchend', endSettingsSwipe);
 settingsSheet.addEventListener('touchcancel', endSettingsSwipe);
 
-// Two-finger touchpad vertical swipe on PC to close settings sheet (at top/bottom, on header/handle, or outside sheet)
+// Two-finger touchpad vertical swipe on PC to close settings sheet (at top/on header/outside sheet)
 let settingsWheelAccumY = 0;
 let settingsWheelResetTimer = null;
+let settingsLastScrollAt = 0;
+
+settingsSheet.addEventListener('scroll', () => {
+    settingsLastScrollAt = Date.now();
+    settingsWheelAccumY = 0;
+}, { passive: true });
 
 settingsBackdrop.addEventListener('wheel', (e) => {
     if (!isSettingsOpen || e.ctrlKey) return;
@@ -631,12 +637,11 @@ settingsBackdrop.addEventListener('wheel', (e) => {
     const atTop = settingsSheet.scrollTop <= 1;
 
     // Закрываем ТОЛЬКО свайпом вниз (deltaY < 0 на тачпаде): в самом верху списка, за шапку/ручку или вне шторки.
-    // Свайп вверх (прокрутка вниз по настройкам) никогда не закрывает окно.
     if (e.deltaY >= 0) {
         settingsWheelAccumY = 0;
         return;
     }
-    if (insideSheet && !onHeaderOrHandle && canScroll && !atTop) {
+    if (insideSheet && !onHeaderOrHandle && canScroll && (!atTop || (Date.now() - settingsLastScrollAt) < 380)) {
         settingsWheelAccumY = 0;
         return;
     }
@@ -657,7 +662,7 @@ settingsBackdrop.addEventListener('wheel', (e) => {
     }
 
     settingsWheelAccumY += e.deltaY;
-    if (Math.abs(settingsWheelAccumY) < 75) return;
+    if (Math.abs(settingsWheelAccumY) < 130) return;
 
     settingsWheelAccumY = 0;
     wheelLocked = true;
@@ -2859,9 +2864,15 @@ function endStatsSwipe() {
 statsSheet.addEventListener('touchend', endStatsSwipe);
 statsSheet.addEventListener('touchcancel', endStatsSwipe);
 
-// Two-finger touchpad vertical swipe on PC to close stats sheet (same behavior as fullscreen player)
+// Two-finger touchpad vertical swipe on PC to close stats sheet (same behavior as settings)
 let statsWheelAccumY = 0;
 let statsWheelResetTimer = null;
+let statsLastScrollAt = 0;
+
+statsSheet.addEventListener('scroll', () => {
+    statsLastScrollAt = Date.now();
+    statsWheelAccumY = 0;
+}, { passive: true });
 
 statsBackdrop.addEventListener('wheel', (e) => {
     if (!isStatsOpen || e.ctrlKey) return;
@@ -2879,7 +2890,7 @@ statsBackdrop.addEventListener('wheel', (e) => {
         statsWheelAccumY = 0;
         return;
     }
-    if (insideSheet && !onHeaderOrHandle && canScroll && !atTop) {
+    if (insideSheet && !onHeaderOrHandle && canScroll && (!atTop || (Date.now() - statsLastScrollAt) < 380)) {
         statsWheelAccumY = 0;
         return;
     }
@@ -2900,7 +2911,7 @@ statsBackdrop.addEventListener('wheel', (e) => {
     }
 
     statsWheelAccumY += e.deltaY;
-    if (Math.abs(statsWheelAccumY) < 85) return;
+    if (Math.abs(statsWheelAccumY) < 130) return;
 
     statsWheelAccumY = 0;
     wheelLocked = true;
