@@ -39,6 +39,7 @@ const DEFAULT_SETTINGS = {
     marquee: true,
     reducedMotion: false,
     haptic: true,
+    mobileFullscreen: true,
 };
 
 function loadUserSettings() {
@@ -83,6 +84,48 @@ let currentAmbientPalette = DEFAULT_AMBIENT_PALETTE.map(c => [...c]);
 let lastAppliedTgHeaderColor = null;
 const IS_DESKTOP_TG = ['tdesktop', 'macos', 'web', 'weba', 'webk'].includes(String(tg.platform || '').toLowerCase());
 let tgBackButtonVisible = false;
+
+function syncTelegramSafeArea() {
+    if (IS_DESKTOP_TG) {
+        document.documentElement.style.setProperty('--tg-top-inset', '0px');
+        document.body.classList.remove('tg-fullscreen');
+        return;
+    }
+    const isFs = Boolean(tg.isFullscreen);
+    document.body.classList.toggle('tg-fullscreen', isFs);
+    if (!isFs) {
+        document.documentElement.style.setProperty('--tg-top-inset', '0px');
+        return;
+    }
+    const safeTop = Number(tg.safeAreaInset?.top) || 0;
+    const contentTop = Number(tg.contentSafeAreaInset?.top) || 0;
+    const totalTop = (safeTop + contentTop) > 0 ? (safeTop + contentTop) : 84;
+    document.documentElement.style.setProperty('--tg-top-inset', `${totalTop}px`);
+}
+
+function syncTelegramMobileFullscreen() {
+    if (IS_DESKTOP_TG) return;
+    try {
+        if (userSettings.mobileFullscreen) {
+            if (typeof tg.requestFullscreen === 'function' && !tg.isFullscreen) {
+                tg.requestFullscreen();
+            }
+            tg.disableVerticalSwipes?.();
+        } else {
+            if (typeof tg.exitFullscreen === 'function' && tg.isFullscreen) {
+                tg.exitFullscreen();
+            }
+            tg.enableVerticalSwipes?.();
+        }
+    } catch (e) {}
+    syncTelegramSafeArea();
+}
+
+try {
+    tg.onEvent?.('fullscreenChanged', syncTelegramSafeArea);
+    tg.onEvent?.('safeAreaChanged', syncTelegramSafeArea);
+    tg.onEvent?.('contentSafeAreaChanged', syncTelegramSafeArea);
+} catch (e) {}
 
 function syncTelegramBackButton() {
     if (IS_DESKTOP_TG) return;
@@ -424,6 +467,7 @@ const optAutoScroll = document.getElementById('optAutoScroll');
 const optMarquee = document.getElementById('optMarquee');
 const optReducedMotion = document.getElementById('optReducedMotion');
 const optHaptic = document.getElementById('optHaptic');
+const optMobileFullscreen = document.getElementById('optMobileFullscreen');
 const settingsResetBtn = document.getElementById('settingsResetBtn');
 
 // ===== Audio Fade & Sleep Timer =====
@@ -675,6 +719,7 @@ function syncSettingsUI() {
     optMarquee.checked = Boolean(userSettings.marquee);
     optReducedMotion.checked = Boolean(userSettings.reducedMotion);
     optHaptic.checked = Boolean(userSettings.haptic);
+    if (optMobileFullscreen) optMobileFullscreen.checked = Boolean(userSettings.mobileFullscreen);
 }
 
 function openSettings() {
@@ -1077,6 +1122,15 @@ optHaptic.addEventListener('change', () => {
     if (userSettings.haptic) haptic('light');
 });
 
+if (optMobileFullscreen) {
+    optMobileFullscreen.addEventListener('change', () => {
+        userSettings.mobileFullscreen = optMobileFullscreen.checked;
+        saveUserSettings();
+        syncTelegramMobileFullscreen();
+        haptic('light');
+    });
+}
+
 settingsResetBtn.addEventListener('click', () => {
     userSettings = { ...DEFAULT_SETTINGS };
     saveUserSettings();
@@ -1090,6 +1144,7 @@ settingsResetBtn.addEventListener('click', () => {
 
 applyUserSettings();
 applyPlaybackRate();
+syncTelegramMobileFullscreen();
 {
     const initVol = getTargetVolume();
     isMuted = initVol <= 0.001;
