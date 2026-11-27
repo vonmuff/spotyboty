@@ -615,7 +615,7 @@ function endSettingsSwipe() {
 settingsSheet.addEventListener('touchend', endSettingsSwipe);
 settingsSheet.addEventListener('touchcancel', endSettingsSwipe);
 
-// Two-finger touchpad vertical swipe on PC to close settings sheet (when at top or outside sheet)
+// Two-finger touchpad vertical swipe on PC to close settings sheet (at top/bottom, on header/handle, or outside sheet)
 let settingsWheelAccumY = 0;
 let settingsWheelResetTimer = null;
 
@@ -626,11 +626,13 @@ settingsBackdrop.addEventListener('wheel', (e) => {
     if (absY < 4 || absY <= absX * 1.35) return;
 
     const insideSheet = Boolean(e.target.closest('#settingsSheet'));
+    const onHeaderOrHandle = Boolean(e.target.closest('.settings-header, .settings-handle'));
     const canScroll = settingsSheet.scrollHeight > settingsSheet.clientHeight + 2;
     const atTop = settingsSheet.scrollTop <= 1;
+    const atBottom = settingsSheet.scrollTop + settingsSheet.clientHeight >= settingsSheet.scrollHeight - 2;
 
-    // Внутри длинных настроек разрешаем скроллить вниз и вверх; закрываем только при свайпе вниз в самом верху или вне шторки
-    if (insideSheet && canScroll && (!atTop || e.deltaY > 0)) {
+    // Внутри контента разрешаем скролл, пока не достигнут край; на краях, шапке или фоне — закрываем свайпом
+    if (insideSheet && !onHeaderOrHandle && canScroll && ((e.deltaY > 0 && !atBottom) || (e.deltaY < 0 && !atTop))) {
         settingsWheelAccumY = 0;
         return;
     }
@@ -651,7 +653,7 @@ settingsBackdrop.addEventListener('wheel', (e) => {
     }
 
     settingsWheelAccumY += e.deltaY;
-    if (Math.abs(settingsWheelAccumY) < 85) return;
+    if (Math.abs(settingsWheelAccumY) < 75) return;
 
     settingsWheelAccumY = 0;
     wheelLocked = true;
@@ -660,6 +662,47 @@ settingsBackdrop.addEventListener('wheel', (e) => {
     haptic('light');
     closeSettings();
 }, { passive: false });
+
+// Перетаскивание мышкой за верхнюю ручку/шапку на ПК для закрытия шторок (Настройки, Статистика)
+function bindMouseSheetDrag(sheetEl, isOpenFn, closeFn) {
+    let dragging = false;
+    let startY = 0;
+    let startTime = 0;
+    let deltaY = 0;
+
+    sheetEl.addEventListener('mousedown', (e) => {
+        if (e.button !== 0 || !isOpenFn()) return;
+        if (!e.target.closest('.settings-handle, .settings-header') || e.target.closest('button')) return;
+        dragging = true;
+        startY = e.clientY;
+        startTime = Date.now();
+        deltaY = 0;
+        sheetEl.classList.add('dragging');
+        e.preventDefault();
+    });
+
+    window.addEventListener('mousemove', (e) => {
+        if (!dragging) return;
+        deltaY = Math.max(0, e.clientY - startY);
+        sheetEl.style.transform = `translate3d(0, ${deltaY}px, 0)`;
+    });
+
+    window.addEventListener('mouseup', () => {
+        if (!dragging) return;
+        dragging = false;
+        sheetEl.classList.remove('dragging');
+        const elapsed = Math.max(1, Date.now() - startTime);
+        const vy = deltaY / elapsed;
+        if (deltaY > 80 || vy > 0.5) {
+            closeFn();
+        } else {
+            sheetEl.style.transform = '';
+        }
+    });
+}
+
+bindMouseSheetDrag(settingsSheet, () => isSettingsOpen, closeSettings);
+bindMouseSheetDrag(statsSheet, () => isStatsOpen, closeStats);
 
 accentPalette.addEventListener('click', (e) => {
     const btn = e.target.closest('.accent-swatch');
