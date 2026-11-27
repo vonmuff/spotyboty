@@ -381,6 +381,11 @@ const scrollTopBtn = document.getElementById('scrollTopBtn');
 const trackListEl = document.getElementById('trackList');
 const trackCountEl = document.getElementById('trackCount');
 const searchInput = document.getElementById('searchInput');
+const mobileSearchSlot = document.getElementById('mobileSearchSlot');
+if (!IS_DESKTOP_TG && mobileSearchSlot && searchInput) {
+    mobileSearchSlot.appendChild(searchInput);
+    mobileSearchSlot.classList.add('active');
+}
 const playerBar = document.getElementById('playerBar');
 const playerTitle = document.getElementById('playerTitle');
 const playerArtist = document.getElementById('playerArtist');

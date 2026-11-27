@@ -167,6 +167,19 @@ body.has-player .scroll-top-btn {
     border-color: var(--accent);
 }
 
+.mobile-search-slot {
+    display: none;
+    padding: 12px 16px 0;
+}
+
+.mobile-search-slot.active {
+    display: block;
+}
+
+.mobile-search-slot.active + .track-list {
+    padding-top: 10px;
+}
+
 /* ===== Playlist Tabs & Toolbar ===== */
 .playlist-tabs {
     display: flex;
