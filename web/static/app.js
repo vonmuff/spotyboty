@@ -1550,10 +1550,16 @@ window.addEventListener('wheel', (e) => {
     const absY = Math.abs(e.deltaY);
 
     // 1) Вертикальный свайп двумя пальцами:
-    //    - в полноэкранном плеере (вверх или вниз) -> плавно свернуть плеер
-    //    - на мини-плеере внизу (вверх или вниз) -> плавно развернуть плеер
+    //    - в полноэкранном плеере: ТОЛЬКО свайп вниз (deltaY < 0) -> свернуть плеер
+    //    - на мини-плеере внизу: ТОЛЬКО свайп вверх (deltaY > 0) -> развернуть плеер
     const onMiniPlayer = !isFullPlayerOpen && Boolean(e.target.closest('.player-bar')) && Boolean(currentFileId);
     if ((isFullPlayerOpen || onMiniPlayer) && absY >= 4 && absY > absX * 1.35) {
+        const validDir = isFullPlayerOpen ? (e.deltaY < 0) : (e.deltaY > 0);
+        if (!validDir) {
+            wheelAccumY = 0;
+            return;
+        }
+
         if (e.cancelable) e.preventDefault();
 
         if (wheelResetTimer) clearTimeout(wheelResetTimer);
