@@ -1352,7 +1352,7 @@ function renderPlaylistTabs() {
     addBtn.type = 'button';
     addBtn.className = 'pl-tab add-tab';
     addBtn.textContent = '＋';
-    addBtn.title = 'Создать плейлист';
+    addBtn.setAttribute('aria-label', 'Создать плейлист');
     addBtn.addEventListener('click', () => openPlaylistModal(null));
     playlistTabs.appendChild(addBtn);
 
@@ -2258,7 +2258,7 @@ function renderTracks(options = {}) {
             ? `<div class="eq-overlay ${isPaused ? 'paused' : ''}"><span></span><span></span><span></span></div>`
             : '';
         const dragHandleHtml = canReorderTracks
-            ? `<div class="drag-handle" title="Перетащить для сортировки" aria-label="Перетащить"><svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><circle cx="9" cy="6" r="2"/><circle cx="15" cy="6" r="2"/><circle cx="9" cy="12" r="2"/><circle cx="15" cy="12" r="2"/><circle cx="9" cy="18" r="2"/><circle cx="15" cy="18" r="2"/></svg></div>`
+            ? `<div class="drag-handle" aria-label="Перетащить"><svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><circle cx="9" cy="6" r="2"/><circle cx="15" cy="6" r="2"/><circle cx="9" cy="12" r="2"/><circle cx="15" cy="12" r="2"/><circle cx="9" cy="18" r="2"/><circle cx="15" cy="18" r="2"/></svg></div>`
             : '';
 
         wrap.innerHTML = `
@@ -2279,10 +2279,10 @@ function renderTracks(options = {}) {
                     <div class="track-artist">${escapeHtml(track.performer || 'Spotify')}</div>
                 </div>
                 <div class="track-actions">
-                    <button class="icon-btn" title="Отправить в чат" data-action="send">
+                    <button class="icon-btn" aria-label="Отправить в чат" data-action="send">
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>
                     </button>
-                    <button class="icon-btn delete" title="${deleteSwipeLabel}" data-action="delete">
+                    <button class="icon-btn delete" aria-label="${deleteSwipeLabel}" data-action="delete">
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg>
                     </button>
                 </div>
