@@ -2340,9 +2340,22 @@ body.settings-open {
 }
 
 /* ===== Stats Wrapped Card ===== */
+#statsBackdrop {
+    transition: opacity 0.38s ease, visibility 0s linear 0.46s;
+}
+
+#statsBackdrop.open {
+    transition: opacity 0.34s ease, visibility 0s linear 0s;
+}
+
 .stats-sheet {
     height: min(78vh, 620px);
     contain: layout style;
+    transition: transform 0.46s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+#statsBackdrop.open .stats-sheet {
+    transition: transform 0.44s cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 .stats-body {
