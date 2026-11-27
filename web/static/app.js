@@ -629,10 +629,14 @@ settingsBackdrop.addEventListener('wheel', (e) => {
     const onHeaderOrHandle = Boolean(e.target.closest('.settings-header, .settings-handle'));
     const canScroll = settingsSheet.scrollHeight > settingsSheet.clientHeight + 2;
     const atTop = settingsSheet.scrollTop <= 1;
-    const atBottom = settingsSheet.scrollTop + settingsSheet.clientHeight >= settingsSheet.scrollHeight - 2;
 
-    // Внутри контента разрешаем скролл, пока не достигнут край; на краях, шапке или фоне — закрываем свайпом
-    if (insideSheet && !onHeaderOrHandle && canScroll && ((e.deltaY > 0 && !atBottom) || (e.deltaY < 0 && !atTop))) {
+    // Закрываем ТОЛЬКО свайпом вниз (deltaY < 0 на тачпаде): в самом верху списка, за шапку/ручку или вне шторки.
+    // Свайп вверх (прокрутка вниз по настройкам) никогда не закрывает окно.
+    if (e.deltaY >= 0) {
+        settingsWheelAccumY = 0;
+        return;
+    }
+    if (insideSheet && !onHeaderOrHandle && canScroll && !atTop) {
         settingsWheelAccumY = 0;
         return;
     }
@@ -2866,13 +2870,16 @@ statsBackdrop.addEventListener('wheel', (e) => {
     if (absY < 4 || absY <= absX * 1.35) return;
 
     const insideSheet = Boolean(e.target.closest('#statsSheet'));
+    const onHeaderOrHandle = Boolean(e.target.closest('.settings-header, .settings-handle'));
     const canScroll = statsSheet.scrollHeight > statsSheet.clientHeight + 2;
     const atTop = statsSheet.scrollTop <= 1;
-    const atBottom = statsSheet.scrollTop + statsSheet.clientHeight >= statsSheet.scrollHeight - 2;
 
-    // Если курсор внутри длинного списка и есть куда скроллить — даём скроллить контент;
-    // на границе (верх/низ) или вне шторки свайп вверх/вниз сразу закрывает статистику, как плеер
-    if (insideSheet && canScroll && ((e.deltaY > 0 && !atBottom) || (e.deltaY < 0 && !atTop))) {
+    // Закрываем ТОЛЬКО свайпом вниз (deltaY < 0 на тачпаде): в самом верху, за шапку/ручку или вне шторки.
+    if (e.deltaY >= 0) {
+        statsWheelAccumY = 0;
+        return;
+    }
+    if (insideSheet && !onHeaderOrHandle && canScroll && !atTop) {
         statsWheelAccumY = 0;
         return;
     }
