@@ -2033,25 +2033,28 @@ body.settings-open {
     position: fixed;
     inset: 0;
     z-index: 100;
-    background: rgba(0, 0, 0, 0.56);
-    backdrop-filter: blur(6px);
-    -webkit-backdrop-filter: blur(6px);
+    background: rgba(0, 0, 0, 0);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
     display: flex;
     align-items: flex-end;
     justify-content: center;
-    opacity: 0;
+    opacity: 1;
     visibility: hidden;
     pointer-events: none;
     touch-action: none;
     overscroll-behavior: contain;
-    transition: opacity 0.24s ease, visibility 0s linear 0.24s;
+    transition: background 0.38s ease, visibility 0s linear 0.46s;
 }
 
 .settings-backdrop.open {
     opacity: 1;
+    background: rgba(0, 0, 0, 0.56);
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
     visibility: visible;
     pointer-events: auto;
-    transition: opacity 0.24s ease, visibility 0s linear 0s;
+    transition: background 0.34s ease, visibility 0s linear 0s;
 }
 
 .settings-sheet {
@@ -2069,12 +2072,13 @@ body.settings-open {
     padding: 10px 20px calc(env(safe-area-inset-bottom, 16px) + 18px);
     box-shadow: 0 -14px 40px rgba(0, 0, 0, 0.45);
     transform: translate3d(0, 100%, 0);
-    transition: transform 0.32s cubic-bezier(0.22, 1, 0.36, 1);
+    transition: transform 0.46s cubic-bezier(0.22, 1, 0.36, 1);
     will-change: transform;
 }
 
 .settings-backdrop.open .settings-sheet {
     transform: translate3d(0, 0, 0);
+    transition: transform 0.44s cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 .settings-sheet.dragging {
@@ -2340,32 +2344,9 @@ body.settings-open {
 }
 
 /* ===== Stats Wrapped Card ===== */
-#statsBackdrop {
-    opacity: 1;
-    background: rgba(0, 0, 0, 0);
-    backdrop-filter: none;
-    -webkit-backdrop-filter: none;
-    transition: background 0.38s ease, visibility 0s linear 0.46s;
-}
-
-#statsBackdrop.open {
-    opacity: 1;
-    background: rgba(0, 0, 0, 0.56);
-    backdrop-filter: blur(6px);
-    -webkit-backdrop-filter: blur(6px);
-    transition: background 0.34s ease, visibility 0s linear 0s;
-}
-
 .stats-sheet {
     height: min(78vh, 620px);
     contain: layout style;
-    transform: translate3d(0, 100%, 0);
-    transition: transform 0.46s cubic-bezier(0.22, 1, 0.36, 1);
-}
-
-#statsBackdrop.open .stats-sheet {
-    transform: translate3d(0, 0, 0);
-    transition: transform 0.44s cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 .stats-body {

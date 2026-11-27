@@ -615,6 +615,52 @@ function endSettingsSwipe() {
 settingsSheet.addEventListener('touchend', endSettingsSwipe);
 settingsSheet.addEventListener('touchcancel', endSettingsSwipe);
 
+// Two-finger touchpad vertical swipe on PC to close settings sheet (when at top or outside sheet)
+let settingsWheelAccumY = 0;
+let settingsWheelResetTimer = null;
+
+settingsBackdrop.addEventListener('wheel', (e) => {
+    if (!isSettingsOpen || e.ctrlKey) return;
+    const absX = Math.abs(e.deltaX);
+    const absY = Math.abs(e.deltaY);
+    if (absY < 4 || absY <= absX * 1.35) return;
+
+    const insideSheet = Boolean(e.target.closest('#settingsSheet'));
+    const canScroll = settingsSheet.scrollHeight > settingsSheet.clientHeight + 2;
+    const atTop = settingsSheet.scrollTop <= 1;
+
+    // Внутри длинных настроек разрешаем скроллить вниз и вверх; закрываем только при свайпе вниз в самом верху или вне шторки
+    if (insideSheet && canScroll && (!atTop || e.deltaY > 0)) {
+        settingsWheelAccumY = 0;
+        return;
+    }
+
+    if (e.cancelable) e.preventDefault();
+
+    if (settingsWheelResetTimer) clearTimeout(settingsWheelResetTimer);
+    settingsWheelResetTimer = setTimeout(() => {
+        settingsWheelAccumY = 0;
+        wheelLocked = false;
+        settingsWheelResetTimer = null;
+    }, 200);
+
+    if (wheelLocked) {
+        if (Date.now() - wheelLockedAt < 560) return;
+        wheelLocked = false;
+        settingsWheelAccumY = 0;
+    }
+
+    settingsWheelAccumY += e.deltaY;
+    if (Math.abs(settingsWheelAccumY) < 85) return;
+
+    settingsWheelAccumY = 0;
+    wheelLocked = true;
+    wheelLockedAt = Date.now();
+    suppressTouchpadMomentum(550);
+    haptic('light');
+    closeSettings();
+}, { passive: false });
+
 accentPalette.addEventListener('click', (e) => {
     const btn = e.target.closest('.accent-swatch');
     if (!btn) return;
