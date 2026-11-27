@@ -71,6 +71,31 @@ function getEffectiveFullPlayerTheme() {
     return tg.colorScheme || 'dark';
 }
 
+const DEFAULT_AMBIENT_PALETTE = [
+    [29, 185, 84],
+    [37, 99, 235],
+    [168, 85, 247],
+    [236, 72, 153],
+];
+let currentAmbientPalette = DEFAULT_AMBIENT_PALETTE.map(c => [...c]);
+
+function rgbToHex(r, g, b) {
+    const toHex = (v) => Math.max(0, Math.min(255, Math.round(v))).toString(16).padStart(2, '0');
+    return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
+}
+
+function getPlayerHeaderTintHex(fpTheme) {
+    const [r, g, b] = (currentAmbientPalette && currentAmbientPalette[0]) || DEFAULT_AMBIENT_PALETTE[0];
+    if (fpTheme === 'light') {
+        // Мягкий пастельный оттенок под светлый полноэкранный плеер
+        const mix = 0.2;
+        return rgbToHex(245 * (1 - mix) + r * mix, 246 * (1 - mix) + g * mix, 250 * (1 - mix) + b * mix);
+    }
+    // Глубокий приглушённый оттенок в цвет верхней части обложки под тёмный плеер
+    const mix = 0.28;
+    return rgbToHex(15 * (1 - mix) + r * mix, 15 * (1 - mix) + g * mix, 19 * (1 - mix) + b * mix);
+}
+
 function applyTelegramTheme() {
     const scheme = tg.colorScheme || 'dark';
     const fpTheme = getEffectiveFullPlayerTheme();
@@ -78,9 +103,13 @@ function applyTelegramTheme() {
     document.documentElement.dataset.fpTheme = fpTheme;
     const bgColor = tg.themeParams?.bg_color || (scheme === 'light' ? '#ffffff' : '#0f0f13');
     try {
-        if (isFullPlayerOpen && fpTheme !== 'light') {
-            tg.setHeaderColor?.('#0f0f13');
-            tg.setBackgroundColor?.('#0f0f13');
+        if (isFullPlayerOpen) {
+            const useTint = Boolean(userSettings.ambientBg) && !userSettings.reducedMotion;
+            const targetColor = useTint
+                ? getPlayerHeaderTintHex(fpTheme)
+                : (fpTheme === 'light' ? bgColor : '#0f0f13');
+            tg.setHeaderColor?.(targetColor);
+            tg.setBackgroundColor?.(targetColor);
         } else {
             tg.setHeaderColor?.(bgColor);
             tg.setBackgroundColor?.(bgColor);
@@ -2452,6 +2481,7 @@ function openFullPlayer() {
     // Запускаем чистый GPU-переход на следующем кадре без синхронного reflow
     fullPlayer.style.transform = '';
     fullPlayer.setAttribute('aria-hidden', 'false');
+    applyTelegramTheme();
     requestAnimationFrame(() => {
         fullPlayer.classList.add('open');
     });
@@ -2485,6 +2515,7 @@ function closeFullPlayer() {
     fullPlayer.style.transform = '';
     fullPlayer.classList.remove('open', 'dragging');
     fullPlayer.setAttribute('aria-hidden', 'true');
+    applyTelegramTheme();
 
     try {
         tg.BackButton?.hide();
@@ -2928,15 +2959,8 @@ function hideLayerInstantly(el) {
     el.style.transition = '';
 }
 
-// ===== Cover Palette Extraction, Bokeh Canvas & Web Audio Beat Analyser =====
-const DEFAULT_AMBIENT_PALETTE = [
-    [29, 185, 84],
-    [37, 99, 235],
-    [168, 85, 247],
-    [236, 72, 153],
-];
+// ===== Cover Palette Extraction & Bokeh Canvas =====
 const coverPaletteCache = new Map();
-let currentAmbientPalette = DEFAULT_AMBIENT_PALETTE.map(c => [...c]);
 
 function boostColorVividness(r, g, b) {
     const max = Math.max(r, g, b);
@@ -2988,6 +3012,10 @@ function applyAmbientPalette(targetPalette, instant = false) {
     // CSS-переменные обновляем ОДИН раз за трек, чтобы мобильный GPU не перерисовывал
     // градиентные текстуры по 20–40 раз за время свайпа (это и вызывало глитчи/разрывы)
     writeAmbientPaletteVars(normalizedTarget);
+    if (isFullPlayerOpen) {
+        currentAmbientPalette = normalizedTarget;
+        applyTelegramTheme();
+    }
 
     // Для Canvas «Боке» можно безопасно и плавно морфить цвета (без перерисовки CSS-слоёв)
     if (instant || userSettings.reducedMotion || !isFullPlayerOpen || userSettings.ambientStyle !== 'bokeh') {
