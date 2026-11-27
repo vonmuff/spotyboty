@@ -2131,7 +2131,7 @@ body.settings-open {
     position: fixed;
     inset: 0;
     z-index: 100;
-    background: rgba(0, 0, 0, 0);
+    background: transparent;
     display: flex;
     align-items: flex-end;
     justify-content: center;
@@ -2140,18 +2140,36 @@ body.settings-open {
     pointer-events: none;
     touch-action: none;
     overscroll-behavior: contain;
-    transition: background 0.38s ease, visibility 0s linear 0.46s;
+    transition: visibility 0s linear 0.46s;
+}
+
+.settings-backdrop::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.52);
+    backdrop-filter: blur(5px);
+    -webkit-backdrop-filter: blur(5px);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.36s ease;
+    will-change: opacity;
 }
 
 .settings-backdrop.open {
-    opacity: 1;
-    background: rgba(0, 0, 0, 0.58);
     visibility: visible;
     pointer-events: auto;
-    transition: background 0.34s ease, visibility 0s linear 0s;
+    transition: visibility 0s linear 0s;
+}
+
+.settings-backdrop.open::before {
+    opacity: 1;
+    transition: opacity 0.32s ease;
 }
 
 .settings-sheet {
+    position: relative;
+    z-index: 1;
     width: 100%;
     max-width: 480px;
     max-height: 85vh;
