@@ -1686,6 +1686,16 @@ body[data-ambient-motion="off"] .aurora-wave {
     width: 38px;
 }
 
+/* В мобильном полноэкранном режиме Telegram убираем дублирующую верхнюю шапку плеера */
+body.tg-fullscreen .fp-handle,
+body.tg-fullscreen .fp-topbar {
+    display: none;
+}
+
+body.tg-fullscreen .fp-art-wrap {
+    padding-top: 12px;
+}
+
 .fp-art-wrap {
     position: relative;
     flex: 1;
