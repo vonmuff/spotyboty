@@ -2544,15 +2544,13 @@ function openFullPlayer() {
         tg.BackButton?.show();
     } catch (e) {}
 
-    // Тяжёлые операции (overflow: hidden на body, смена цвета шапки TG, пересчёт marquee)
-    // выполняем ПОСЛЕ завершения 60fps анимации выезда, чтобы не было рывка на 1-м кадре
+    // Выполняем ПОСЛЕ полного завершения 440ms GPU-выезда, чтобы не было рывка/стыковки в конце
     fpOpenTimer = setTimeout(() => {
         if (!isFullPlayerOpen) return;
         document.body.classList.add('fp-open');
-        applyTelegramTheme();
         refreshAllMarquees();
         syncAmbientRuntime();
-    }, 370);
+    }, 470);
 }
 
 function closeFullPlayer() {
