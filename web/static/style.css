@@ -143,14 +143,6 @@ body.has-player .scroll-top-btn {
     letter-spacing: -0.3px;
 }
 
-.track-counter {
-    font-size: 13px;
-    color: var(--text-secondary);
-    background: var(--surface-chip);
-    padding: 4px 10px;
-    border-radius: 99px;
-}
-
 .search-box {
     width: 100%;
     background: var(--bg-card);

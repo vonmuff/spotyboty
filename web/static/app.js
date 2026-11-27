@@ -379,7 +379,6 @@ const trackActDeleteBtn = document.getElementById('trackActDeleteBtn');
 const trackActDeleteLabel = document.getElementById('trackActDeleteLabel');
 const scrollTopBtn = document.getElementById('scrollTopBtn');
 const trackListEl = document.getElementById('trackList');
-const trackCountEl = document.getElementById('trackCount');
 const searchInput = document.getElementById('searchInput');
 const mobileSearchSlot = document.getElementById('mobileSearchSlot');
 const searchToggleBtn = document.getElementById('searchToggleBtn');
@@ -2257,8 +2256,6 @@ async function loadPlaylist() {
 function renderTracks(options = {}) {
     const { animateEntrance = false, highlightFileId = null } = options;
     const activePl = getActiveCustomPlaylist();
-    const sourceCount = activePl ? activePl.track_ids.length : allTracks.length;
-    trackCountEl.textContent = `${sourceCount} треков`;
 
     if (filteredTracks.length === 0) {
         if (activePl && !searchInput.value.trim()) {
