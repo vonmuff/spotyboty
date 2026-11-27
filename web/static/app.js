@@ -1549,6 +1549,12 @@ window.addEventListener('wheel', (e) => {
     const absX = Math.abs(e.deltaX);
     const absY = Math.abs(e.deltaY);
 
+    // В полноэкранном плеере всегда блокируем прокрутку body позади (без overflow: hidden на body,
+    // чтобы не было сдвига ширины от пропадания скроллбара)
+    if (isFullPlayerOpen && e.cancelable) {
+        e.preventDefault();
+    }
+
     // 1) Вертикальный свайп двумя пальцами:
     //    - в полноэкранном плеере: ТОЛЬКО свайп вниз (deltaY < 0) -> свернуть плеер
     //    - на мини-плеере внизу: ТОЛЬКО свайп вверх (deltaY > 0) -> развернуть плеер
@@ -2550,13 +2556,12 @@ function openFullPlayer() {
         tg.BackButton?.show();
     } catch (e) {}
 
-    // Выполняем ПОСЛЕ полного завершения 440ms GPU-выезда, чтобы не было рывка/стыковки в конце
+    // Выполняем ПОСЛЕ полного завершения 440ms GPU-выезда (без overflow: hidden на body — 0 сдвига ширины)
     fpOpenTimer = setTimeout(() => {
         if (!isFullPlayerOpen) return;
-        document.body.classList.add('fp-open');
         refreshAllMarquees();
         syncAmbientRuntime();
-    }, 470);
+    }, 460);
 }
 
 function closeFullPlayer() {

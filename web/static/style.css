@@ -36,10 +36,6 @@ img {
     pointer-events: none;
 }
 
-html {
-    scrollbar-gutter: stable;
-}
-
 body {
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
     background-color: var(--bg-main);
@@ -1096,10 +1092,6 @@ body.has-player .undo-toast {
 }
 
 /* ===== Fullscreen Player (Bottom Sheet) ===== */
-body.fp-open {
-    overflow: hidden;
-}
-
 .full-player {
     position: fixed;
     inset: 0;
