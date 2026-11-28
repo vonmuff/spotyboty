@@ -10,7 +10,7 @@ from typing import Optional
 from urllib.parse import urlencode
 
 import aiosqlite
-from aiohttp import web, ClientSession, TCPConnector
+from aiohttp import web, ClientSession, TCPConnector, WSMsgType
 from aiogram import Bot
 from aiogram.utils.web_app import safe_parse_webapp_init_data
 from mutagen.mp3 import MP3
@@ -37,6 +37,8 @@ _file_path_cache: dict[str, tuple[str, float]] = {}
 ROWID_CACHE_MAX_SIZE = 2000
 _rowid_to_file_id_cache: dict[int, str] = {}
 _checked_covers: set[str] = set()
+_bot_username_cache: Optional[str] = None
+ROOMS_WS_UPSTREAM = os.getenv("ROOMS_WS_UPSTREAM", "http://127.0.0.1:4000/ws/rooms/websocket")
 
 
 def _get_http_session() -> ClientSession:
@@ -930,6 +932,78 @@ async def get_cover(request):
         return web.FileResponse(cover_path, headers={"Cache-Control": "public, max-age=21600, immutable"})
          
     return web.Response(status=404)
+
+
+@routes.get('/api/room_config')
+async def get_room_config(request):
+    global _bot_username_cache
+    user_id = _get_authenticated_user_id(request)
+    if user_id is None:
+        return web.json_response({'error': 'Unauthorized'}, status=401)
+    if _bot_username_cache is None and bot_instance:
+        try:
+            me = await bot_instance.get_me()
+            _bot_username_cache = me.username or ""
+        except Exception as e:
+            logger.warning("Не удалось получить username бота: %s", e)
+            _bot_username_cache = ""
+    return web.json_response({
+        "bot_username": _bot_username_cache or "",
+        "ws_path": "/ws/rooms/websocket",
+    })
+
+
+@routes.get('/ws/rooms/websocket')
+async def proxy_rooms_websocket(request):
+    """Проксирует WebSocket-соединения комнат на Elixir-сервис (Phoenix Channels)."""
+    upstream_url = ROOMS_WS_UPSTREAM
+    if request.query_string:
+        upstream_url = f"{upstream_url}?{request.query_string}"
+
+    session = _get_http_session()
+    try:
+        upstream_ws = await session.ws_connect(upstream_url, heartbeat=25)
+    except Exception as e:
+        logger.warning("Elixir rooms upstream unavailable (%s): %s", ROOMS_WS_UPSTREAM, e)
+        return web.Response(status=503, text="Rooms service unavailable")
+
+    client_ws = web.WebSocketResponse(heartbeat=25)
+    await client_ws.prepare(request)
+
+    async def forward_client_to_upstream():
+        async for msg in client_ws:
+            if msg.type == WSMsgType.TEXT:
+                await upstream_ws.send_str(msg.data)
+            elif msg.type == WSMsgType.BINARY:
+                await upstream_ws.send_bytes(msg.data)
+            elif msg.type in (WSMsgType.CLOSE, WSMsgType.ERROR):
+                break
+
+    async def forward_upstream_to_client():
+        async for msg in upstream_ws:
+            if msg.type == WSMsgType.TEXT:
+                await client_ws.send_str(msg.data)
+            elif msg.type == WSMsgType.BINARY:
+                await client_ws.send_bytes(msg.data)
+            elif msg.type in (WSMsgType.CLOSE, WSMsgType.ERROR):
+                break
+
+    tasks = [
+        asyncio.create_task(forward_client_to_upstream()),
+        asyncio.create_task(forward_upstream_to_client()),
+    ]
+    try:
+        _, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+        for task in pending:
+            task.cancel()
+        await asyncio.gather(*pending, return_exceptions=True)
+    finally:
+        if not upstream_ws.closed:
+            await upstream_ws.close()
+        if not client_ws.closed:
+            await client_ws.close()
+
+    return client_ws
 
 
 async def _on_startup(app: web.Application):
