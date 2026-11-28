@@ -1,6 +1,7 @@
 import Config
 
 config :phoenix, :json_library, Jason
+config :phoenix, :filter_parameters, ["init_data", "token", "hash"]
 
 config :rooms_elixir, RoomsElixirWeb.Endpoint,
   adapter: Bandit.PhoenixAdapter,

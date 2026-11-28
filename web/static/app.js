@@ -4502,6 +4502,8 @@ const roomControlSegment = document.getElementById('roomControlSegment');
 const roomMembersCount = document.getElementById('roomMembersCount');
 const roomMembersList = document.getElementById('roomMembersList');
 const roomLeaveBtn = document.getElementById('roomLeaveBtn');
+const fpRoomBadge = document.getElementById('fpRoomBadge');
+const fpRoomBadgeText = document.getElementById('fpRoomBadgeText');
 
 let isRoomModalOpen = false;
 let isApplyingRoomState = false;
@@ -4543,6 +4545,10 @@ function openRoomModal() {
     if (!roomBackdrop) return;
     isRoomModalOpen = true;
     showRoomError('');
+    if (roomSheet) {
+        roomSheet.style.transform = '';
+        roomSheet.classList.remove('dragging');
+    }
     roomBackdrop.classList.add('open');
     roomBackdrop.setAttribute('aria-hidden', 'false');
     document.body.classList.add('settings-open');
@@ -4553,6 +4559,10 @@ function openRoomModal() {
 function closeRoomModal() {
     if (!roomBackdrop || !isRoomModalOpen) return;
     isRoomModalOpen = false;
+    if (roomSheet) {
+        roomSheet.style.transform = '';
+        roomSheet.classList.remove('dragging');
+    }
     roomBackdrop.classList.remove('open');
     roomBackdrop.setAttribute('aria-hidden', 'true');
     if (!isSettingsOpen && !isStatsOpen && !isPlModalOpen && !isAddTracksModalOpen) {
@@ -4622,6 +4632,12 @@ function renderRoomUI() {
         if (roomBannerTitle) {
             roomBannerTitle.textContent = `В эфире · ${count} онлайн`;
         }
+        if (fpRoomBadge) {
+            fpRoomBadge.style.display = 'inline-flex';
+        }
+        if (fpRoomBadgeText) {
+            fpRoomBadgeText.textContent = `В эфире · ${count} онлайн`;
+        }
         if (roomBannerMeta) {
             roomBannerMeta.textContent = roomState.track
                 ? `${roomState.track.title} · ${roleText}`
@@ -4653,6 +4669,7 @@ function renderRoomUI() {
     } else {
         if (roomLobbyView) roomLobbyView.style.display = 'block';
         if (roomActiveView) roomActiveView.style.display = 'none';
+        if (fpRoomBadge) fpRoomBadge.style.display = 'none';
     }
 }
 
@@ -4983,11 +5000,65 @@ function roomBroadcastPlayback(isPlaying, positionSec) {
 
 if (roomBtn) roomBtn.addEventListener('click', openRoomModal);
 if (roomBannerOpenBtn) roomBannerOpenBtn.addEventListener('click', openRoomModal);
+if (fpRoomBadge) fpRoomBadge.addEventListener('click', openRoomModal);
 if (roomCloseBtn) roomCloseBtn.addEventListener('click', closeRoomModal);
 if (roomBackdrop) {
     roomBackdrop.addEventListener('click', (e) => {
         if (e.target === roomBackdrop) closeRoomModal();
     });
+    roomBackdrop.addEventListener('wheel', (e) => {
+        if (!isRoomModalOpen) return;
+        const inside = Boolean(e.target.closest('#roomSheet'));
+        if (!inside) {
+            e.preventDefault();
+        }
+    }, { passive: false });
+}
+if (roomSheet) {
+    if (typeof bindMouseSheetDrag === 'function') {
+        bindMouseSheetDrag(roomSheet, () => isRoomModalOpen, closeRoomModal);
+    }
+    let roomSwipeStartY = 0;
+    let roomSwipeStartX = 0;
+    let roomSwipeDeltaY = 0;
+    let roomSwipeDragging = false;
+    roomSheet.addEventListener('touchstart', (e) => {
+        if (!isRoomModalOpen || e.touches.length !== 1 || roomSheet.scrollTop > 0) return;
+        roomSwipeStartY = e.touches[0].clientY;
+        roomSwipeStartX = e.touches[0].clientX;
+        roomSwipeDeltaY = 0;
+        roomSwipeDragging = false;
+    }, { passive: true });
+    roomSheet.addEventListener('touchmove', (e) => {
+        if (!isRoomModalOpen || e.touches.length !== 1) return;
+        const dy = e.touches[0].clientY - roomSwipeStartY;
+        const dx = Math.abs(e.touches[0].clientX - roomSwipeStartX);
+        if (!roomSwipeDragging) {
+            if (dy > 8 && dy > dx && roomSheet.scrollTop <= 0) {
+                roomSwipeDragging = true;
+                roomSheet.classList.add('dragging');
+            } else {
+                return;
+            }
+        }
+        if (dy > 0) {
+            roomSwipeDeltaY = dy;
+            roomSheet.style.transform = `translate3d(0, ${dy}px, 0)`;
+        }
+    }, { passive: true });
+    const endRoomSwipe = () => {
+        if (!roomSwipeDragging) return;
+        roomSwipeDragging = false;
+        roomSheet.classList.remove('dragging');
+        if (roomSwipeDeltaY > 90) {
+            closeRoomModal();
+        } else {
+            roomSheet.style.transform = '';
+        }
+        roomSwipeDeltaY = 0;
+    };
+    roomSheet.addEventListener('touchend', endRoomSwipe, { passive: true });
+    roomSheet.addEventListener('touchcancel', endRoomSwipe, { passive: true });
 }
 if (roomCreateBtn) {
     roomCreateBtn.addEventListener('click', () => {
