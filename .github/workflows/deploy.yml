@@ -1,44 +1,139 @@
-name: Deploy to Azure VM
+name: CI & Deploy to Azure VM
 
 on:
   push:
     branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
 
 concurrency:
-  group: deploy-azure-vm
+  group: deploy-azure-vm-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
-  deploy:
+  checks:
+    name: Syntax, DOM & Elixir Tests
     runs-on: ubuntu-latest
-
     steps:
-    - name: Setup SSH Key
-      uses: webfactory/ssh-agent@v0.10.0
-      with:
-        ssh-private-key: ${{ secrets.AZURE_SSH_KEY }}
+      - name: Checkout
+        uses: actions/checkout@v4
 
-    - name: Deploy to Azure via SSH
-      env:
-        HOST: ${{ secrets.AZURE_HOST }}
-        USER: ${{ secrets.AZURE_USER }}
-      run: |
-        mkdir -p ~/.ssh
-        ssh-keyscan -H "$HOST" >> ~/.ssh/known_hosts
+      - name: Verify Python syntax
+        run: |
+          python3 -m py_compile main.py bot/*.py bot/handlers/*.py services/*.py web/server.py
 
-        ssh "$USER@$HOST" << 'EOF'
-          set -e
-          cd /home/muffin/spotyboty
-          git fetch origin main
-          git reset --hard origin/main
-          mkdir -p data
-          if [ -f "tracks_cache.db" ] && [ ! -e "data/tracks_cache.db" ]; then
-            docker compose down || true
-            for f in tracks_cache.db tracks_cache.db-wal tracks_cache.db-shm bot_log.jsonl cookies.txt; do
-              [ -f "$f" ] && [ ! -e "data/$f" ] && mv "$f" "data/$f"
-            done
-            [ -d "covers_cache" ] && [ ! -e "data/covers_cache" ] && mv covers_cache data/covers_cache
-          fi
-          docker compose up -d --build
-          docker image prune -f
-        EOF
+      - name: Verify JS syntax & DOM IDs
+        run: |
+          node --check web/static/app.js
+          python3 - << 'PY'
+          import re
+          html = open("web/static/playlist.html", encoding="utf-8").read()
+          js = open("web/static/app.js", encoding="utf-8").read()
+          ids = set(re.findall(r'id="([^"]+)"', html))
+          refs = set(re.findall(r"getElementById\(['\"]([^'\"]+)['\"]\)", js))
+          missing = sorted(refs - ids - {"emptyAddTracksBtn"})
+          assert not missing, f"Missing DOM IDs: {missing}"
+          print(f"DOM IDs OK ({len(refs)} checked)")
+          PY
+
+      - name: Setup Elixir & OTP
+        uses: erlef/setup-beam@v1
+        with:
+          elixir-version: "1.18.3"
+          otp-version: "27.3"
+
+      - name: Cache Elixir deps & build
+        uses: actions/cache@v4
+        with:
+          path: |
+            rooms_elixir/deps
+            rooms_elixir/_build
+          key: ${{ runner.os }}-mix-${{ hashFiles('rooms_elixir/mix.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-mix-
+
+      - name: Run Elixir tests
+        working-directory: rooms_elixir
+        run: |
+          mix local.hex --force
+          mix local.rebar --force
+          mix deps.get
+          mix test
+
+  build-rooms:
+    name: Build & Push rooms_elixir (GHCR)
+    needs: checks
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push rooms_elixir image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./rooms_elixir
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository_owner }}/spotyboty-rooms:latest
+            ghcr.io/${{ github.repository_owner }}/spotyboty-rooms:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  deploy:
+    name: Deploy to Azure VM
+    needs: [checks, build-rooms]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - name: Setup SSH Key
+        uses: webfactory/ssh-agent@v0.10.0
+        with:
+          ssh-private-key: ${{ secrets.AZURE_SSH_KEY }}
+
+      - name: Deploy to Azure via SSH
+        env:
+          HOST: ${{ secrets.AZURE_HOST }}
+          USER: ${{ secrets.AZURE_USER }}
+          GHCR_USER: ${{ github.actor }}
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mkdir -p ~/.ssh
+          ssh-keyscan -H "$HOST" >> ~/.ssh/known_hosts
+
+          printf '%s\n' "$GHCR_TOKEN" | ssh "$USER@$HOST" "docker login ghcr.io -u '$GHCR_USER' --password-stdin"
+
+          ssh "$USER@$HOST" << 'EOF'
+            set -e
+            cd /home/muffin/spotyboty
+            git fetch origin main
+            git checkout -B main origin/main
+            mkdir -p data
+            if [ -f "tracks_cache.db" ] && [ ! -e "data/tracks_cache.db" ]; then
+              docker compose down || true
+              for f in tracks_cache.db tracks_cache.db-wal tracks_cache.db-shm bot_log.jsonl cookies.txt; do
+                [ -f "$f" ] && [ ! -e "data/$f" ] && mv "$f" "data/$f"
+              done
+              [ -d "covers_cache" ] && [ ! -e "data/covers_cache" ] && mv covers_cache data/covers_cache
+            fi
+            docker compose pull rooms_elixir
+            docker compose up -d --build spotyboty
+            docker compose up -d --no-build rooms_elixir
+            docker image prune -f
+          EOF

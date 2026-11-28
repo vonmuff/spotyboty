@@ -14,6 +14,7 @@ services:
       - ./lists:/app/lists:ro
 
   rooms_elixir:
+    image: ghcr.io/vonmuff/spotyboty-rooms:latest
     build: ./rooms_elixir
     container_name: spotyboty-rooms
     restart: unless-stopped
