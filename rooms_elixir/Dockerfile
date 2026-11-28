@@ -14,7 +14,7 @@ COPY config config
 COPY lib lib
 RUN mix compile && mix release
 
-FROM alpine:3.21 AS runtime
+FROM alpine:latest AS runtime
 
 RUN apk add --no-cache libstdc++ openssl ncurses-libs curl
 
