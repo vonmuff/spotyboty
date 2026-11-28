@@ -8,6 +8,20 @@ services:
       - .env
     environment:
       - DATA_DIR=/app/data
+      - ROOMS_WS_UPSTREAM=http://127.0.0.1:4000/ws/rooms/websocket
     volumes:
       - ./data:/app/data
       - ./lists:/app/lists:ro
+
+  rooms_elixir:
+    build: ./rooms_elixir
+    container_name: spotyboty-rooms
+    restart: unless-stopped
+    network_mode: host
+    env_file:
+      - .env
+    environment:
+      - ROOMS_PORT=4000
+      - ROOMS_BIND_ALL=false
+      - ERL_FLAGS=+S 2:2
+    mem_limit: 160m

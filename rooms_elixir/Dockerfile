@@ -1,4 +1,4 @@
-FROM hexpm/elixir:1.17.3-erlang-27.1.2-alpine-3.20.3 AS build
+FROM elixir:1.18-alpine AS build
 
 RUN apk add --no-cache build-base
 
@@ -14,7 +14,7 @@ COPY config config
 COPY lib lib
 RUN mix compile && mix release
 
-FROM alpine:3.20.3 AS runtime
+FROM alpine:3.21 AS runtime
 
 RUN apk add --no-cache libstdc++ openssl ncurses-libs curl
 
@@ -22,7 +22,8 @@ WORKDIR /app
 COPY --from=build /app/_build/prod/rel/rooms_elixir ./
 
 ENV ROOMS_PORT=4000 \
-    ROOMS_BIND_ALL=true
+    ROOMS_BIND_ALL=false \
+    ERL_FLAGS="+S 2:2"
 
 EXPOSE 4000
 

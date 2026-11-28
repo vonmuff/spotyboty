@@ -1,0 +1,6 @@
+_build/
+deps/
+test/
+test_e2e_ws.py
+erl_crash.dump
+.git/
