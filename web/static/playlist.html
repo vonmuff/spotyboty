@@ -16,6 +16,10 @@
                 <button id="searchToggleBtn" class="header-icon-btn desktop-search-btn" type="button" aria-label="Поиск">
                     <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M15.5 14h-.79l-.28-.27A6.471 6.471 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg>
                 </button>
+                <button id="roomBtn" class="header-icon-btn room-header-btn" type="button" aria-label="Совместное прослушивание">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M12 1c-4.97 0-9 4.03-9 9v7c0 1.66 1.34 3 3 3h3v-8H5v-2c0-3.87 3.13-7 7-7s7 3.13 7 7v2h-4v8h3c1.66 0 3-1.34 3-3v-7c0-4.97-4.03-9-9-9z"/></svg>
+                    <span id="roomBtnDot" class="room-live-dot"></span>
+                </button>
                 <button id="statsBtn" class="header-icon-btn" type="button" aria-label="Моя статистика">
                     <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M5 9.2h3V19H5V9.2zM10.6 5h2.8v14h-2.8V5zm5.6 8H19v6h-2.8v-6z"/></svg>
                 </button>
@@ -34,6 +38,17 @@
     </div>
 
     <div id="mobileSearchSlot" class="mobile-search-slot"></div>
+
+    <div id="roomBanner" class="room-banner" aria-live="polite">
+        <div class="room-banner-main" id="roomBannerOpenBtn">
+            <span class="room-banner-pulse"></span>
+            <div class="room-banner-text">
+                <div id="roomBannerTitle" class="room-banner-title">Комната</div>
+                <div id="roomBannerMeta" class="room-banner-meta">Подключение...</div>
+            </div>
+        </div>
+        <button id="roomUnlockAudioBtn" class="room-unlock-btn" type="button" style="display:none;">▶ В эфир</button>
+    </div>
 
     <div id="trackList" class="track-list">
         <div class="empty-state">Загрузка плейлиста...</div>
@@ -582,6 +597,61 @@
                 <button class="seg-btn" data-period="7d" type="button">7 дней</button>
             </div>
             <div id="statsBody" class="stats-body"></div>
+        </div>
+    </div>
+
+    <div id="roomBackdrop" class="settings-backdrop" aria-hidden="true">
+        <div id="roomSheet" class="settings-sheet room-sheet" role="dialog" aria-modal="true" aria-label="Совместное прослушивание">
+            <div class="settings-handle"></div>
+            <div class="settings-header" style="margin-bottom:14px;">
+                <h2>🎧 Комната (Jam)</h2>
+                <button id="roomCloseBtn" class="header-icon-btn" type="button" aria-label="Закрыть">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+                </button>
+            </div>
+
+            <div id="roomLobbyView" class="room-view">
+                <p class="room-desc">Слушайте треки синхронно с друзьями прямо в Telegram — один жмёт play, играет у всех.</p>
+                <button id="roomCreateBtn" class="room-primary-btn" type="button">✨ Создать комнату</button>
+                <div class="room-divider"><span>или войти по коду</span></div>
+                <div class="room-join-row">
+                    <input id="roomCodeInput" class="search-box" type="text" placeholder="Код комнаты (например a7k2m9)" maxlength="24" autocomplete="off">
+                    <button id="roomJoinBtn" class="room-secondary-btn" type="button">Войти</button>
+                </div>
+                <div id="roomLobbyError" class="room-error" style="display:none;"></div>
+            </div>
+
+            <div id="roomActiveView" class="room-view" style="display:none;">
+                <div class="room-code-card">
+                    <div>
+                        <div class="room-code-label">Код комнаты</div>
+                        <div id="roomActiveCode" class="room-code-val">—</div>
+                    </div>
+                    <div class="room-code-actions">
+                        <button id="roomShareBtn" class="room-chip-btn primary" type="button">Пригласить</button>
+                        <button id="roomCopyBtn" class="room-chip-btn" type="button">Копировать</button>
+                    </div>
+                </div>
+
+                <div id="roomControlRow" class="room-control-row" style="display:none;">
+                    <span class="room-control-label">Управление плеером</span>
+                    <div id="roomControlSegment" class="segmented-control">
+                        <button class="seg-btn active" data-mode="host" type="button">Только хост</button>
+                        <button class="seg-btn" data-mode="all" type="button">Все</button>
+                    </div>
+                </div>
+
+                <div class="room-members-header">
+                    <span>В комнате</span>
+                    <span id="roomMembersCount" class="room-members-badge">0</span>
+                </div>
+                <div id="roomMembersList" class="room-members-list"></div>
+
+                <button id="roomLeaveBtn" class="action-sheet-btn danger" type="button" style="margin-top:14px;">
+                    <span class="action-sheet-icon">🚪</span>
+                    <span>Выйти из комнаты</span>
+                </button>
+            </div>
         </div>
     </div>
 

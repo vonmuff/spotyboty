@@ -2792,6 +2792,7 @@ window.addEventListener('keydown', (e) => {
         else if (isPlModalOpen) closePlaylistModal();
         else if (isPlActionsOpen) closePlaylistActions();
         else if (isStatsOpen) closeStats();
+        else if (isRoomModalOpen) closeRoomModal();
         else if (isSettingsOpen) closeSettings();
         else if (isFullPlayerOpen) closeFullPlayer();
         else if (isDesktopSearchOpen) closeDesktopSearch();
@@ -4085,6 +4086,10 @@ function playTrackById(fileId, shouldScroll = false) {
     } else {
         startAudioStream();
     }
+
+    if (typeof roomBroadcastTrack === 'function' && !isApplyingRoomState) {
+        roomBroadcastTrack(track, true);
+    }
 }
 
 function playPrevTrack() {
@@ -4121,8 +4126,14 @@ function togglePlayPause() {
     isSwitchingTrack = false;
     if (audio.paused) {
         playWithFade();
+        if (typeof roomBroadcastPlayback === 'function' && !isApplyingRoomState) {
+            roomBroadcastPlayback(true, audio.currentTime || 0);
+        }
     } else {
         pauseWithFade();
+        if (typeof roomBroadcastPlayback === 'function' && !isApplyingRoomState) {
+            roomBroadcastPlayback(false, audio.currentTime || 0);
+        }
     }
 }
 
@@ -4274,6 +4285,9 @@ function bindSeekSlider(sliderEl, wrapperEl) {
         isSeeking = false;
         wrapperEl.classList.remove('seeking');
         setProgressVisual(val, audio.duration || 0);
+        if (typeof roomBroadcastPlayback === 'function' && !isApplyingRoomState) {
+            roomBroadcastPlayback(!audio.paused, val);
+        }
     });
 }
 
@@ -4463,5 +4477,597 @@ function escapeHtml(str) {
         '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
     }[s]));
 }
+
+// ===== Listening Rooms (Elixir Phoenix Channels v2 + Presence) =====
+const roomBtn = document.getElementById('roomBtn');
+const roomBanner = document.getElementById('roomBanner');
+const roomBannerOpenBtn = document.getElementById('roomBannerOpenBtn');
+const roomBannerTitle = document.getElementById('roomBannerTitle');
+const roomBannerMeta = document.getElementById('roomBannerMeta');
+const roomUnlockAudioBtn = document.getElementById('roomUnlockAudioBtn');
+const roomBackdrop = document.getElementById('roomBackdrop');
+const roomSheet = document.getElementById('roomSheet');
+const roomCloseBtn = document.getElementById('roomCloseBtn');
+const roomLobbyView = document.getElementById('roomLobbyView');
+const roomActiveView = document.getElementById('roomActiveView');
+const roomCreateBtn = document.getElementById('roomCreateBtn');
+const roomCodeInput = document.getElementById('roomCodeInput');
+const roomJoinBtn = document.getElementById('roomJoinBtn');
+const roomLobbyError = document.getElementById('roomLobbyError');
+const roomActiveCode = document.getElementById('roomActiveCode');
+const roomShareBtn = document.getElementById('roomShareBtn');
+const roomCopyBtn = document.getElementById('roomCopyBtn');
+const roomControlRow = document.getElementById('roomControlRow');
+const roomControlSegment = document.getElementById('roomControlSegment');
+const roomMembersCount = document.getElementById('roomMembersCount');
+const roomMembersList = document.getElementById('roomMembersList');
+const roomLeaveBtn = document.getElementById('roomLeaveBtn');
+
+let isRoomModalOpen = false;
+let isApplyingRoomState = false;
+let roomWs = null;
+let roomHeartbeatTimer = null;
+let roomDriftTimer = null;
+let roomMsgRef = 0;
+let roomJoinRef = null;
+let roomPendingReplies = new Map();
+let roomConfigCache = null;
+
+const roomState = {
+    connected: false,
+    roomId: null,
+    myUserId: null,
+    hostId: null,
+    controlMode: 'host',
+    track: null,
+    isPlaying: false,
+    positionSec: 0,
+    serverTimeMs: 0,
+    clockOffsetMs: 0,
+    presences: {},
+    autoplayBlocked: false,
+};
+
+function canControlRoom() {
+    if (!roomState.connected) return false;
+    return roomState.controlMode === 'all' || roomState.hostId === roomState.myUserId;
+}
+
+function showRoomError(msg) {
+    if (!roomLobbyError) return;
+    roomLobbyError.textContent = msg || '';
+    roomLobbyError.style.display = msg ? 'block' : 'none';
+}
+
+function openRoomModal() {
+    if (!roomBackdrop) return;
+    isRoomModalOpen = true;
+    showRoomError('');
+    roomBackdrop.classList.add('open');
+    roomBackdrop.setAttribute('aria-hidden', 'false');
+    document.body.classList.add('settings-open');
+    if (typeof syncTelegramBackButton === 'function') syncTelegramBackButton();
+    renderRoomUI();
+}
+
+function closeRoomModal() {
+    if (!roomBackdrop || !isRoomModalOpen) return;
+    isRoomModalOpen = false;
+    roomBackdrop.classList.remove('open');
+    roomBackdrop.setAttribute('aria-hidden', 'true');
+    if (!isSettingsOpen && !isStatsOpen && !isPlModalOpen && !isAddTracksModalOpen) {
+        document.body.classList.remove('settings-open');
+    }
+    if (typeof syncTelegramBackButton === 'function') syncTelegramBackButton();
+}
+
+async function fetchRoomConfig() {
+    if (roomConfigCache) return roomConfigCache;
+    try {
+        const res = await fetch('/api/room_config', { headers: authHeaders() });
+        if (res.ok) {
+            roomConfigCache = await res.json();
+            return roomConfigCache;
+        }
+    } catch (e) {}
+    return { bot_username: '', ws_path: '/ws/rooms/websocket' };
+}
+
+function generateRoomCode() {
+    const chars = 'abcdefghjkmnpqrstuvwxyz23456789';
+    let out = '';
+    for (let i = 0; i < 6; i++) {
+        out += chars[Math.floor(Math.random() * chars.length)];
+    }
+    return out;
+}
+
+function getRoomInviteUrl(roomId) {
+    const botUsername = roomConfigCache?.bot_username || '';
+    if (botUsername) {
+        return `https://t.me/${botUsername}?startapp=room_${roomId}`;
+    }
+    const url = new URL(window.location.href);
+    url.searchParams.set('room', roomId);
+    return url.toString();
+}
+
+function getRoomMembersList() {
+    const members = [];
+    for (const [key, entry] of Object.entries(roomState.presences || {})) {
+        const meta = entry?.metas?.[0];
+        if (meta) {
+            members.push({
+                user_id: meta.user_id ?? Number(key),
+                name: meta.name || 'Слушатель',
+                username: meta.username || '',
+            });
+        }
+    }
+    members.sort((a, b) => (b.user_id === roomState.hostId) - (a.user_id === roomState.hostId));
+    return members;
+}
+
+function renderRoomUI() {
+    const connected = roomState.connected && !!roomState.roomId;
+    if (roomBtn) roomBtn.classList.toggle('live', connected);
+    if (roomBanner) roomBanner.classList.toggle('visible', connected);
+
+    if (connected) {
+        const members = getRoomMembersList();
+        const count = Math.max(1, members.length);
+        const roleText = roomState.hostId === roomState.myUserId
+            ? 'Вы хост'
+            : (roomState.controlMode === 'all' ? 'Общее управление' : 'Режим слушателя');
+        if (roomBannerTitle) {
+            roomBannerTitle.textContent = `В эфире · ${count} онлайн`;
+        }
+        if (roomBannerMeta) {
+            roomBannerMeta.textContent = roomState.track
+                ? `${roomState.track.title} · ${roleText}`
+                : `Комната ${roomState.roomId} · ${roleText}`;
+        }
+        if (roomUnlockAudioBtn) {
+            roomUnlockAudioBtn.style.display = roomState.autoplayBlocked ? 'inline-flex' : 'none';
+        }
+        if (roomLobbyView) roomLobbyView.style.display = 'none';
+        if (roomActiveView) roomActiveView.style.display = 'block';
+        if (roomActiveCode) roomActiveCode.textContent = roomState.roomId;
+        if (roomControlRow) {
+            roomControlRow.style.display = roomState.hostId === roomState.myUserId ? 'flex' : 'none';
+        }
+        if (roomControlSegment) {
+            roomControlSegment.querySelectorAll('.seg-btn').forEach(btn => {
+                btn.classList.toggle('active', btn.dataset.mode === roomState.controlMode);
+            });
+        }
+        if (roomMembersCount) roomMembersCount.textContent = String(count);
+        if (roomMembersList) {
+            roomMembersList.innerHTML = members.map(m => {
+                const isHost = m.user_id === roomState.hostId;
+                const isMe = m.user_id === roomState.myUserId;
+                const badge = isHost ? '👑 Хост' : (isMe ? 'Вы' : 'Слушает');
+                return `<div class="room-member-item"><span>${escapeHtml(m.name)}${isMe && isHost ? ' (вы)' : ''}</span><span class="room-member-role">${badge}</span></div>`;
+            }).join('');
+        }
+    } else {
+        if (roomLobbyView) roomLobbyView.style.display = 'block';
+        if (roomActiveView) roomActiveView.style.display = 'none';
+    }
+}
+
+function sendPhoenixPush(topic, event, payload, joinRef = roomJoinRef) {
+    if (!roomWs || roomWs.readyState !== WebSocket.OPEN) return Promise.reject(new Error('not_connected'));
+    const ref = String(++roomMsgRef);
+    const frame = JSON.stringify([joinRef, ref, topic, event, payload || {}]);
+    return new Promise((resolve, reject) => {
+        const timer = setTimeout(() => {
+            roomPendingReplies.delete(ref);
+            reject(new Error('timeout'));
+        }, 8000);
+        roomPendingReplies.set(ref, { resolve, reject, timer });
+        roomWs.send(frame);
+    });
+}
+
+function computeExpectedRoomPos() {
+    if (!roomState.isPlaying) return roomState.positionSec;
+    const estServerNow = Date.now() + roomState.clockOffsetMs;
+    const elapsed = Math.max(0, (estServerNow - roomState.serverTimeMs) / 1000);
+    return roomState.positionSec + elapsed;
+}
+
+function startRoomDriftLoop() {
+    stopRoomDriftLoop();
+    roomDriftTimer = setInterval(() => {
+        if (!roomState.connected || !roomState.isPlaying || !roomState.track || isSeeking) return;
+        if (audio.paused || !audio.duration) return;
+        const expected = computeExpectedRoomPos();
+        if (expected >= audio.duration) return;
+        const drift = expected - (audio.currentTime || 0);
+        const absDrift = Math.abs(drift);
+        if (absDrift > 1.5) {
+            audio.currentTime = Math.max(0, Math.min(expected, audio.duration - 0.5));
+            applyPlaybackRate();
+        } else if (absDrift > 0.35) {
+            const baseRate = userSettings.playbackRate || 1;
+            audio.playbackRate = drift > 0 ? Math.min(2, baseRate * 1.04) : Math.max(0.5, baseRate * 0.96);
+        } else {
+            applyPlaybackRate();
+        }
+    }, 2500);
+}
+
+function stopRoomDriftLoop() {
+    if (roomDriftTimer) {
+        clearInterval(roomDriftTimer);
+        roomDriftTimer = null;
+    }
+    applyPlaybackRate();
+}
+
+function playExternalTrackForRoom(track, shouldPlay, startPosSec) {
+    currentFileId = track.file_id;
+    const switchSeq = ++audioSwitchSeq;
+    const titleText = track.title || 'Без названия';
+    const artistText = track.performer || 'Комната';
+
+    playerBar.classList.add('visible');
+    document.body.classList.add('has-player');
+    setMarqueeText(playerTitle, titleText);
+    playerArtist.textContent = artistText;
+
+    if (track.cover_url) {
+        playerCover.style.visibility = 'visible';
+        playerCover.src = track.cover_url;
+        crossfadeFullPlayerCover(track.cover_url, true);
+    } else {
+        playerCover.style.visibility = 'hidden';
+    }
+
+    setMarqueeText(fpTitle, titleText);
+    setMarqueeText(fpArtist, artistText);
+    syncActiveTrackInDOM();
+
+    pendingResumeTime = startPosSec > 0.3 ? startPosSec : null;
+    isSwitchingTrack = true;
+    try { audio.pause(); } catch (e) {}
+    audio.src = track.stream_url;
+    applyPlaybackRate();
+    try { audio.volume = getTargetVolume(); } catch (e) {}
+
+    if (shouldPlay) {
+        const p = audio.play();
+        if (p && typeof p.then === 'function') {
+            p.then(() => {
+                if (switchSeq !== audioSwitchSeq) return;
+                isSwitchingTrack = false;
+                roomState.autoplayBlocked = false;
+                updatePlayButtons(true);
+                renderRoomUI();
+            }).catch((err) => {
+                if (switchSeq !== audioSwitchSeq) return;
+                if (err && err.name === 'AbortError') return;
+                isSwitchingTrack = false;
+                roomState.autoplayBlocked = true;
+                updatePlayButtons(false);
+                renderRoomUI();
+            });
+        }
+    } else {
+        isSwitchingTrack = false;
+        updatePlayButtons(false);
+    }
+}
+
+function applyRemoteRoomState(remote, isInitialJoin = false) {
+    if (!remote) return;
+    const prevTrackId = roomState.track?.file_id || null;
+    roomState.hostId = remote.host_id;
+    roomState.controlMode = remote.control_mode || 'host';
+    roomState.track = remote.track || null;
+    roomState.isPlaying = !!remote.is_playing;
+    roomState.positionSec = Number(remote.position_sec) || 0;
+    roomState.serverTimeMs = Number(remote.server_time_ms) || Date.now();
+
+    // Игнорируем собственный эхо-бродкаст (кроме первичного входа)
+    if (!isInitialJoin && remote.actor_id && remote.actor_id === roomState.myUserId) {
+        renderRoomUI();
+        return;
+    }
+
+    isApplyingRoomState = true;
+    try {
+        if (roomState.track) {
+            const expectedPos = computeExpectedRoomPos();
+            const isSameTrack = prevTrackId === roomState.track.file_id && currentFileId === roomState.track.file_id && audio.src;
+            if (!isSameTrack) {
+                playExternalTrackForRoom(roomState.track, roomState.isPlaying, expectedPos);
+            } else {
+                const diff = Math.abs((audio.currentTime || 0) - expectedPos);
+                if (diff > 0.6 && audio.readyState >= 1) {
+                    const maxPos = audio.duration ? Math.max(0, audio.duration - 0.5) : expectedPos;
+                    audio.currentTime = Math.max(0, Math.min(expectedPos, maxPos));
+                }
+                if (roomState.isPlaying && audio.paused) {
+                    const p = audio.play();
+                    if (p && typeof p.catch === 'function') {
+                        p.then(() => {
+                            roomState.autoplayBlocked = false;
+                            updatePlayButtons(true);
+                            renderRoomUI();
+                        }).catch(() => {
+                            roomState.autoplayBlocked = true;
+                            updatePlayButtons(false);
+                            renderRoomUI();
+                        });
+                    }
+                } else if (!roomState.isPlaying && !audio.paused) {
+                    audio.pause();
+                    updatePlayButtons(false);
+                }
+            }
+        }
+    } finally {
+        setTimeout(() => { isApplyingRoomState = false; }, 120);
+    }
+    renderRoomUI();
+}
+
+async function syncRoomClock(topic) {
+    const offsets = [];
+    for (let i = 0; i < 2; i++) {
+        try {
+            const t0 = Date.now();
+            const reply = await sendPhoenixPush(topic, 'ping', { client_time_ms: t0 });
+            const t1 = Date.now();
+            if (reply?.server_time_ms) {
+                const rtt = t1 - t0;
+                offsets.push(reply.server_time_ms - (t0 + rtt / 2));
+            }
+        } catch (e) {}
+    }
+    if (offsets.length > 0) {
+        roomState.clockOffsetMs = Math.round(offsets.reduce((a, b) => a + b, 0) / offsets.length);
+    }
+}
+
+function applyPresenceDiff(diff) {
+    if (!diff) return;
+    if (diff.joins) {
+        for (const [k, v] of Object.entries(diff.joins)) {
+            roomState.presences[k] = v;
+        }
+    }
+    if (diff.leaves) {
+        for (const k of Object.keys(diff.leaves)) {
+            delete roomState.presences[k];
+        }
+    }
+    renderRoomUI();
+}
+
+function leaveRoom() {
+    if (roomHeartbeatTimer) {
+        clearInterval(roomHeartbeatTimer);
+        roomHeartbeatTimer = null;
+    }
+    stopRoomDriftLoop();
+    for (const { reject, timer } of roomPendingReplies.values()) {
+        clearTimeout(timer);
+        reject(new Error('left'));
+    }
+    roomPendingReplies.clear();
+    if (roomWs) {
+        try { roomWs.close(1000, 'leave'); } catch (e) {}
+        roomWs = null;
+    }
+    roomState.connected = false;
+    roomState.roomId = null;
+    roomState.track = null;
+    roomState.presences = {};
+    roomState.autoplayBlocked = false;
+    renderRoomUI();
+}
+
+async function joinRoom(rawCode) {
+    const code = String(rawCode || '').trim().replace(/^room_/, '');
+    if (!/^[a-zA-Z0-9_-]{4,24}$/.test(code)) {
+        showRoomError('Код комнаты должен содержать 4–24 латинских символа или цифры.');
+        return;
+    }
+    showRoomError('');
+    leaveRoom();
+
+    const cfg = await fetchRoomConfig();
+    const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const qs = new URLSearchParams({ vsn: '2.0.0', init_data: initData });
+    const wsUrl = `${proto}//${window.location.host}${cfg.ws_path || '/ws/rooms/websocket'}?${qs.toString()}`;
+
+    const ws = new WebSocket(wsUrl);
+    roomWs = ws;
+    const topic = `room:${code}`;
+
+    ws.onopen = async () => {
+        if (roomWs !== ws) return;
+        roomJoinRef = String(++roomMsgRef);
+        roomHeartbeatTimer = setInterval(() => {
+            if (roomWs && roomWs.readyState === WebSocket.OPEN) {
+                roomWs.send(JSON.stringify([null, String(++roomMsgRef), 'phoenix', 'heartbeat', {}]));
+            }
+        }, 25000);
+
+        try {
+            const res = await sendPhoenixPush(topic, 'phx_join', {}, roomJoinRef);
+            roomState.connected = true;
+            roomState.roomId = code;
+            roomState.myUserId = res?.you?.user_id ?? null;
+            await syncRoomClock(topic);
+            applyRemoteRoomState(res?.state, true);
+            startRoomDriftLoop();
+
+            // Если создатель уже слушает трек, а комната пуста — сразу расшарим его в комнату
+            if (res?.you?.is_host && !res?.state?.track && currentFileId) {
+                const cur = allTracks.find(t => t.file_id === currentFileId);
+                if (cur) {
+                    roomBroadcastTrack(cur, !audio.paused);
+                    if (audio.currentTime > 0.5) {
+                        roomBroadcastPlayback(!audio.paused, audio.currentTime);
+                    }
+                }
+            }
+            renderRoomUI();
+        } catch (err) {
+            showRoomError('Не удалось войти в комнату.');
+            leaveRoom();
+        }
+    };
+
+    ws.onmessage = (ev) => {
+        let parsed;
+        try { parsed = JSON.parse(ev.data); } catch (e) { return; }
+        if (!Array.isArray(parsed) || parsed.length < 5) return;
+        const [, ref, msgTopic, event, payload] = parsed;
+
+        if (event === 'phx_reply' && ref && roomPendingReplies.has(ref)) {
+            const pending = roomPendingReplies.get(ref);
+            roomPendingReplies.delete(ref);
+            clearTimeout(pending.timer);
+            if (payload?.status === 'ok') pending.resolve(payload.response);
+            else pending.reject(payload?.response || new Error('error'));
+            return;
+        }
+        if (msgTopic !== topic) return;
+        if (event === 'presence_state') {
+            roomState.presences = payload || {};
+            renderRoomUI();
+        } else if (event === 'presence_diff') {
+            applyPresenceDiff(payload);
+        } else if (event === 'room_state') {
+            applyRemoteRoomState(payload, false);
+        }
+    };
+
+    ws.onerror = () => {
+        if (roomWs !== ws) return;
+        showRoomError('Сервис комнат сейчас недоступен.');
+    };
+
+    ws.onclose = () => {
+        if (roomWs !== ws) return;
+        leaveRoom();
+    };
+}
+
+function roomBroadcastTrack(track, isPlaying) {
+    if (!canControlRoom() || !roomState.roomId || !track) return;
+    sendPhoenixPush(`room:${roomState.roomId}`, 'sync_track', {
+        track: {
+            file_id: track.file_id,
+            title: track.title || track.name || 'Без названия',
+            performer: track.performer || '',
+            stream_url: track.stream_url,
+            cover_url: track.cover_url || '',
+        },
+        is_playing: !!isPlaying,
+    }).catch(() => {});
+}
+
+function roomBroadcastPlayback(isPlaying, positionSec) {
+    if (!canControlRoom() || !roomState.roomId) return;
+    sendPhoenixPush(`room:${roomState.roomId}`, 'sync_playback', {
+        is_playing: !!isPlaying,
+        position_sec: Number(positionSec) || 0,
+    }).catch(() => {});
+}
+
+if (roomBtn) roomBtn.addEventListener('click', openRoomModal);
+if (roomBannerOpenBtn) roomBannerOpenBtn.addEventListener('click', openRoomModal);
+if (roomCloseBtn) roomCloseBtn.addEventListener('click', closeRoomModal);
+if (roomBackdrop) {
+    roomBackdrop.addEventListener('click', (e) => {
+        if (e.target === roomBackdrop) closeRoomModal();
+    });
+}
+if (roomCreateBtn) {
+    roomCreateBtn.addEventListener('click', () => {
+        haptic('light');
+        joinRoom(generateRoomCode());
+    });
+}
+if (roomJoinBtn) {
+    roomJoinBtn.addEventListener('click', () => {
+        haptic('light');
+        joinRoom(roomCodeInput ? roomCodeInput.value : '');
+    });
+}
+if (roomLeaveBtn) {
+    roomLeaveBtn.addEventListener('click', () => {
+        haptic('medium');
+        leaveRoom();
+        closeRoomModal();
+    });
+}
+if (roomShareBtn) {
+    roomShareBtn.addEventListener('click', () => {
+        if (!roomState.roomId) return;
+        const inviteUrl = getRoomInviteUrl(roomState.roomId);
+        const shareUrl = `https://t.me/share/url?url=${encodeURIComponent(inviteUrl)}&text=${encodeURIComponent('🎧 Заходи слушать музыку вместе!')}`;
+        if (tg && typeof tg.openTelegramLink === 'function') {
+            tg.openTelegramLink(shareUrl);
+        } else {
+            window.open(shareUrl, '_blank');
+        }
+    });
+}
+if (roomCopyBtn) {
+    roomCopyBtn.addEventListener('click', async () => {
+        if (!roomState.roomId) return;
+        const inviteUrl = getRoomInviteUrl(roomState.roomId);
+        try {
+            await navigator.clipboard.writeText(inviteUrl);
+            const oldText = roomCopyBtn.textContent;
+            roomCopyBtn.textContent = 'Скопировано!';
+            setTimeout(() => { roomCopyBtn.textContent = oldText; }, 1600);
+        } catch (e) {}
+    });
+}
+if (roomControlSegment) {
+    roomControlSegment.addEventListener('click', (e) => {
+        const btn = e.target.closest('.seg-btn');
+        if (!btn || !roomState.connected || roomState.hostId !== roomState.myUserId) return;
+        const mode = btn.dataset.mode;
+        if (!mode || mode === roomState.controlMode) return;
+        haptic('light');
+        sendPhoenixPush(`room:${roomState.roomId}`, 'set_control_mode', { mode }).catch(() => {});
+    });
+}
+if (roomUnlockAudioBtn) {
+    roomUnlockAudioBtn.addEventListener('click', () => {
+        haptic('light');
+        const expected = computeExpectedRoomPos();
+        if (audio.duration) {
+            audio.currentTime = Math.max(0, Math.min(expected, audio.duration - 0.5));
+        }
+        const p = audio.play();
+        if (p && typeof p.then === 'function') {
+            p.then(() => {
+                roomState.autoplayBlocked = false;
+                updatePlayButtons(true);
+                renderRoomUI();
+            }).catch(() => {});
+        }
+    });
+}
+
+// Автоподключение при открытии Mini App по invite-ссылке (?startapp=room_<id>)
+(function checkAutoJoinRoom() {
+    const startParam = tg?.initDataUnsafe?.start_param || new URLSearchParams(window.location.search).get('room') || '';
+    if (startParam.startsWith('room_') && startParam.length > 8) {
+        setTimeout(() => joinRoom(startParam.slice(5)), 400);
+    } else if (/^[a-zA-Z0-9_-]{4,24}$/.test(new URLSearchParams(window.location.search).get('room') || '')) {
+        setTimeout(() => joinRoom(new URLSearchParams(window.location.search).get('room')), 400);
+    }
+})();
 
 loadPlaylist();
